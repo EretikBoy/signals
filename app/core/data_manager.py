@@ -4,7 +4,7 @@ import shutil
 import pickle
 import pandas as pd
 from datetime import datetime
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QMessageBox, QFileDialog
 
 from core.parser import DataParser
 from core.dataprocessor import Processor
