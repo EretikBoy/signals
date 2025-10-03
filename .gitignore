@@ -9,3 +9,7 @@ control.py
 tektronixtest.py
 test.py
 testrigo.py
+app/core/__pycache__
+app/gui/__pycache__
+app/modules/__pycache__
+app/utils/__pycache__
