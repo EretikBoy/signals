@@ -45,9 +45,6 @@ class InstrumentManager(QObject):
     
     def setup_ui(self):
         """Создание UI компонентов управления приборами"""
-        # Этот метод создает UI элементы, но не размещает их
-        # Размещение будет в главном окне
-        
         # Выпадающие списки приборов
         self.generator_combo = QComboBox()
         self.oscilloscope_combo = QComboBox()
@@ -272,7 +269,7 @@ class InstrumentManager(QObject):
             return None
     
     def get_selected_instruments(self):
-        """Получение выбранных приборов"""
+        """Получение выбранных приборов для измерения (требует оба прибора)"""
         if self.generator_combo.currentIndex() == -1:
             self.log_message.emit("Выберите генератор сигналов")
             return None
@@ -299,6 +296,23 @@ class InstrumentManager(QObject):
             }
         }
     
+    def get_selected_oscilloscope(self):
+        """Получение только выбранного осциллографа (для чтения данных)"""
+        if self.oscilloscope_combo.currentIndex() == -1:
+            self.log_message.emit("Выберите осциллограф")
+            return None
+        
+        oscilloscope_data = self.oscilloscope_combo.currentData()
+        
+        if not oscilloscope_data:
+            self.log_message.emit("Неверные данные осциллографа")
+            return None
+        
+        return {
+            'resource': oscilloscope_data[0],
+            'type': oscilloscope_data[1]
+        }
+    
     def update_generator_defaults(self):
         """Обновление настроек генератора на основе последнего измерения"""
         if self.last_measurement_data:
@@ -322,6 +336,12 @@ class InstrumentManager(QObject):
         self.stop_button.setEnabled(measuring)
         self.read_oscilloscope_button.setEnabled(not measuring)
         self.refresh_instruments_button.setEnabled(not measuring)
+    
+    def set_reading_state(self, reading):
+        """Установка состояния чтения данных"""
+        self.measure_button.setEnabled(not reading)
+        self.read_oscilloscope_button.setEnabled(not reading)
+        self.refresh_instruments_button.setEnabled(not reading)
     
     def update_progress(self, value):
         """Обновление прогресс бара"""

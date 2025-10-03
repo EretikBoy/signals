@@ -16,8 +16,6 @@ class TableManager(QObject):
     row_added = pyqtSignal(int)  # row
     rows_deleted = pyqtSignal(list)  # list of rows
     graph_requested = pyqtSignal(int)  # row
-    analysis_save_requested = pyqtSignal()
-    analysis_load_requested = pyqtSignal()
     
     def __init__(self, table_widget):
         super().__init__()
@@ -90,6 +88,9 @@ class TableManager(QObject):
         file_button = self.table.cellWidget(row, 1)
         graph_button = self.table.cellWidget(row, 2)
         
+        if file_button is None or graph_button is None:
+            return
+            
         if success:
             file_button.setText(file_name)
             self.set_button_style(file_button, 'success')
@@ -107,14 +108,37 @@ class TableManager(QObject):
     
     def update_row_params(self, row, params):
         """Обновление параметров в строке таблицы"""
-        self.table.item(row, 3).setText(str(params['start_freq']))
-        self.table.item(row, 4).setText(str(params['end_freq']))
-        self.table.item(row, 5).setText(str(params['record_time']))
-        self.table.item(row, 6).setText(str(params['cut_second']))
+        if row >= self.table.rowCount():
+            return
+            
+        item_3 = self.table.item(row, 3)
+        item_4 = self.table.item(row, 4)
+        item_5 = self.table.item(row, 5)
+        item_6 = self.table.item(row, 6)
+        
+        if item_3 is not None:
+            item_3.setText(str(params['start_freq']))
+        if item_4 is not None:
+            item_4.setText(str(params['end_freq']))
+        if item_5 is not None:
+            item_5.setText(str(params['record_time']))
+        if item_6 is not None:
+            item_6.setText(str(params['cut_second']))
     
     def update_row_subject_code(self, row, subject_code):
         """Обновление кода предмета в строке"""
-        self.table.item(row, 0).setText(subject_code)
+        if row < self.table.rowCount():
+            item = self.table.item(row, 0)
+            if item is not None:
+                item.setText(subject_code)
+    
+    def get_subject_code(self, row):
+        """Получение кода предмета из строки"""
+        if row < self.table.rowCount():
+            item = self.table.item(row, 0)
+            if item is not None:
+                return item.text()
+        return ""
     
     def delete_selected_rows(self):
         """Удаление выбранных строк"""
@@ -145,11 +169,6 @@ class TableManager(QObject):
     
     def set_button_style(self, button, style_type='normal'):
         """Установка стиля для кнопки"""
-        from utils.constants import (
-            BUTTON_STYLE_SUCCESS, BUTTON_STYLE_ERROR, 
-            BUTTON_STYLE_WARNING, BUTTON_STYLE_NORMAL
-        )
-        
         if style_type == 'success':
             button.setStyleSheet(BUTTON_STYLE_SUCCESS)
         elif style_type == 'error':
@@ -158,17 +177,3 @@ class TableManager(QObject):
             button.setStyleSheet(BUTTON_STYLE_WARNING)
         else:
             button.setStyleSheet(BUTTON_STYLE_NORMAL)
-    
-    def connect_buttons(self, load_callback, load_multiple_callback, delete_callback,
-                       save_callback, load_callback_analysis):
-        """Подключение callback-функций к кнопкам управления"""
-        # Эти кнопки должны быть созданы в главном окне и переданы сюда
-        pass  # Реализация зависит от того, как организованы кнопки управления
-    
-    def save_analysis(self):
-        """Запрос на сохранение анализа"""
-        self.analysis_save_requested.emit()
-    
-    def load_analysis(self):
-        """Запрос на загрузку анализа"""
-        self.analysis_load_requested.emit()

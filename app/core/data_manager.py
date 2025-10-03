@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QMessageBox, QFileDialog
 
 from core.parser import DataParser
 from core.dataprocessor import Processor
-from utils.constants import *
+from utils.constants import DEFAULT_PARAMS, MEASUREMENTS_DIR, TABLES_DIR, ANALYSIS_EXTENSION
 
 
 class DataManager:
@@ -123,7 +123,7 @@ class DataManager:
         except Exception as e:
             return False, None, f'Ошибка при сохранении данных: {str(e)}'
     
-    def save_analysis(self, table_widget, parent):
+    def save_analysis(self, table_data, parent):
         """Сохранение анализа в папку tables"""
         if not self.files_data:
             QMessageBox.warning(parent, 'Предупреждение', 'Нет данных для сохранения')
@@ -159,8 +159,11 @@ class DataManager:
                 except Exception:
                     QMessageBox.critical(parent, 'Ошибка', 'Строки таблицы не имеют привязки, данные сохраняться без исходных файлов')
                 
+                # Получаем данные из таблицы
+                subject_code = table_data.get_subject_code(row)
+                
                 row_data = {
-                    'subject_code': table_widget.item(row, 0).text(),
+                    'subject_code': subject_code,
                     'file_name': data['file_name'],
                     'params': data['params'],
                     'processor': data['processor'],
@@ -186,7 +189,7 @@ class DataManager:
             QMessageBox.critical(parent, 'Ошибка', f'Ошибка при сохранении анализа: {str(e)}')
             return False
     
-    def load_analysis(self, table_widget, parent):
+    def load_analysis(self, parent):
         """Загрузка анализа из файла"""
         file_name, _ = QFileDialog.getOpenFileName(
             parent, 
@@ -196,35 +199,32 @@ class DataManager:
         )
         
         if not file_name:
-            return False
+            return None
         
         base_name = os.path.splitext(os.path.basename(file_name))[0]
         folder_name = os.path.join(os.path.dirname(file_name), base_name)
         
         if not os.path.exists(file_name) or not os.path.exists(folder_name):
             QMessageBox.critical(parent, 'Ошибка', 'Файл анализа или папка с данными не найдены')
-            return False
+            return None
         
         try:
             with open(file_name, 'rb') as f:
                 analysis_data = pickle.load(f)
             
             # Очищаем текущие данные
-            table_widget.setRowCount(0)
             self.files_data = {}
             for dialog in self.open_dialogs.values():
                 dialog.close()
             self.open_dialogs = {}
             
-            for row, row_data in analysis_data['rows']:
-                table_widget.insertRow(row)
-                
+            # Сортируем строки по номеру
+            sorted_rows = sorted(analysis_data['rows'], key=lambda x: x[0])
+            loaded_data = []
+            
+            for old_row, row_data in sorted_rows:
                 file_path = os.path.join(folder_name, row_data['file_name'])
                 file_exists = os.path.exists(file_path)
-                
-                # Восстанавливаем данные в таблицу (это должен сделать TableManager)
-                # Возвращаем данные для восстановления UI
-                yield row, row_data, file_path, file_exists
                 
                 # Восстанавливаем внутренние данные
                 channels = {}
@@ -234,20 +234,28 @@ class DataManager:
                     channel.data = pd.DataFrame(channel_data['data'])
                     channels[channel_name] = channel
                 
-                self.files_data[row] = {
+                # Сохраняем данные файла
+                self.files_data[old_row] = {
                     'path': file_path if file_exists else None,
                     'file_name': row_data['file_name'],
                     'params': row_data['params'],
                     'processor': row_data['processor'],
                     'channels': channels
                 }
+                
+                loaded_data.append({
+                    'row': old_row,
+                    'row_data': row_data,
+                    'file_path': file_path,
+                    'file_exists': file_exists
+                })
             
             QMessageBox.information(parent, 'Успех', 'Анализ успешно загружен')
-            return True
+            return loaded_data
             
         except Exception as e:
             QMessageBox.critical(parent, 'Ошибка', f'Ошибка при загрузке анализа: {str(e)}')
-            return False
+            return None
     
     def get_file_data(self, row):
         """Получение данных файла по строке"""

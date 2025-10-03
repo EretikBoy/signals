@@ -1,6 +1,6 @@
 #gui/window.py
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QLabel, QMessageBox
+    QMainWindow, QWidget, QVBoxLayout, QLabel, QMessageBox, QHBoxLayout, QPushButton, QTableWidget
 )
 from PyQt6.QtCore import QEvent
 
@@ -13,6 +13,7 @@ from utils.constants import *
 
 
 class MainWindow(QMainWindow):
+    """Главное окно приложения - координатор всех компонентов"""
     
     def __init__(self):
         super().__init__()
@@ -45,7 +46,6 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(title_label)
         
         # Создаем таблицу
-        from PyQt6.QtWidgets import QTableWidget
         table_widget = QTableWidget()
         self.table_manager = TableManager(table_widget)
         
@@ -59,15 +59,13 @@ class MainWindow(QMainWindow):
     
     def setup_table_buttons(self, main_layout):
         """Создание кнопок управления таблицей"""
-        from PyQt6.QtWidgets import QHBoxLayout, QPushButton
-        
         table_button_layout = QHBoxLayout()
         
         add_row_button = QPushButton('Добавить предмет')
         add_row_button.clicked.connect(self.table_manager.add_table_row)
         
         load_button = QPushButton('Загрузить файл')
-        load_button.clicked.connect(self.table_manager.load_file_for_row)
+        load_button.clicked.connect(self.load_file)
         
         load_multiple_button = QPushButton('Загрузить несколько файлов')
         load_multiple_button.clicked.connect(self.table_manager.load_multiple_files)
@@ -105,8 +103,6 @@ class MainWindow(QMainWindow):
         self.table_manager.row_added.connect(self.on_row_added)
         self.table_manager.rows_deleted.connect(self.on_rows_deleted)
         self.table_manager.graph_requested.connect(self.on_graph_requested)
-        self.table_manager.analysis_save_requested.connect(self.save_analysis)
-        self.table_manager.analysis_load_requested.connect(self.load_analysis)
     
     def connect_instrument_signals(self):
         """Подключение сигналов приборов"""
@@ -125,6 +121,11 @@ class MainWindow(QMainWindow):
         self.worker_manager.oscilloscope_data_error.connect(self.on_oscilloscope_data_error)
         self.worker_manager.instruments_detected.connect(self.instrument_manager.on_instruments_detected)
         self.worker_manager.instruments_detection_error.connect(self.instrument_manager.on_detection_error)
+    
+    def load_file(self):
+        """Загрузка файла в новую строку"""
+        row = self.table_manager.add_table_row()
+        self.table_manager.load_file_for_row(row)
     
     def on_file_loaded(self, row, file_path):
         """Обработка загрузки файла"""
@@ -305,26 +306,39 @@ class MainWindow(QMainWindow):
     
     def save_analysis(self):
         """Сохранение анализа"""
-        self.data_manager.save_analysis(self.table_manager.table, self)
+        self.data_manager.save_analysis(self.table_manager, self)
     
     def load_analysis(self):
         """Загрузка анализа"""
-        for row, row_data, file_path, file_exists in self.data_manager.load_analysis(self.table_manager.table, self) or []:
-            # Добавляем строку в таблицу
+        loaded_data = self.data_manager.load_analysis(self)
+        if not loaded_data:
+            return
+        
+        # Очищаем таблицу перед загрузкой
+        self.table_manager.clear_table()
+        
+        for item in loaded_data:
+            row = item['row']
+            row_data = item['row_data']
+            file_exists = item['file_exists']
+            
+            # Добавляем строку
             self.table_manager.add_table_row()
             
             # Обновляем UI строки
             file_button = self.table_manager.table.cellWidget(row, 1)
-            if not file_exists:
-                file_button.setText(f'Файл недоступен:\n{row_data["file_name"]}')
-                self.table_manager.set_button_style(file_button, 'error')
-            else:
-                file_button.setText(row_data['file_name'])
-                self.table_manager.set_button_style(file_button, 'success')
+            if file_button is not None:
+                if not file_exists:
+                    file_button.setText(f'Файл недоступен:\n{row_data["file_name"]}')
+                    self.table_manager.set_button_style(file_button, 'error')
+                else:
+                    file_button.setText(row_data['file_name'])
+                    self.table_manager.set_button_style(file_button, 'success')
             
             graph_button = self.table_manager.table.cellWidget(row, 2)
-            graph_button.setEnabled(True)
-            graph_button.setText('Открыть графики')
+            if graph_button is not None:
+                graph_button.setEnabled(True)
+                graph_button.setText('Открыть графики')
             
             # Обновляем параметры
             self.table_manager.update_row_params(row, row_data['params'])
@@ -347,3 +361,45 @@ class MainWindow(QMainWindow):
             dialog.close()
         
         event.accept()
+
+    def on_oscilloscope_read_requested(self):
+        """Обработка запроса на чтение данных с осциллографа"""
+        oscilloscope = self.instrument_manager.get_selected_oscilloscope()
+        if not oscilloscope:
+            return
+    
+        # Запускаем чтение данных
+        self.worker_manager.start_oscilloscope_reading(
+            oscilloscope['resource'],
+            oscilloscope['type']
+        )
+    
+        # Обновляем UI
+        self.instrument_manager.set_reading_state(True)
+
+    def on_oscilloscope_data_ready(self, channels_data):
+        """Обработка данных с осциллографа"""
+        self.instrument_manager.set_reading_state(False)
+        self.on_log_message("Данные с осциллографа успешно получены")
+        
+        # Добавляем данные в таблицу
+        success, table_data, result = self.data_manager.save_measurement_data(
+            channels_data, 
+            self.instrument_manager.get_measurement_params() or {}
+        )
+        
+        if success:
+            row = self.table_manager.add_table_row()
+            self.data_manager.set_file_data(row, table_data)
+            
+            # Обновляем UI таблицы
+            self.table_manager.update_row_after_file_load(row, True, table_data['file_name'])
+            self.table_manager.update_row_params(row, table_data['params'])
+            self.table_manager.update_row_subject_code(row, f"OSC{table_data['file_name'].split('_')[1]}")
+        else:
+            self.on_log_message(result)
+
+    def on_oscilloscope_data_error(self, error_message):
+        """Обработка ошибки чтения данных с осциллографа"""
+        self.instrument_manager.set_reading_state(False)
+        self.on_log_message(f"Ошибка чтения данных: {error_message}")
