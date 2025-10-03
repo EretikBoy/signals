@@ -12,16 +12,26 @@ from utils.constants import DEFAULT_PARAMS, MEASUREMENTS_DIR, TABLES_DIR, ANALYS
 
 
 class DataManager:
-    """Управление данными файлов и анализом"""
+    """Управление данными с поддержкой иерархической структуры предметов и анализов"""
     
     def __init__(self):
         self.data_parser = DataParser()
-        self.files_data = {}
-        self.open_dialogs = {}
+        self.subjects_data = {}  # subject_code -> {analyses: {analysis_index: data}, ...}
+        self.open_dialogs = {}  # (subject_code, analysis_index) -> dialog
     
-    def parse_file(self, file_path, row_position):
-        """Парсинг файла и добавление в данные"""
+    def initialize_subject(self, subject_code):
+        """Инициализация предмета"""
+        if subject_code not in self.subjects_data:
+            self.subjects_data[subject_code] = {
+                'analyses': {},
+                'metadata': {}
+            }
+    
+    def parse_file(self, subject_code, file_path, analysis_index):
+        """Парсинг файла и добавление в данные предмета"""
         try:
+            self.initialize_subject(subject_code)
+            
             file_format = file_path.split('.')[-1]
             success = self.data_parser.parsefile(file_path, file_format)
             
@@ -30,31 +40,48 @@ class DataManager:
             
             file_name = os.path.basename(file_path)
             file_name_without_ext = file_name.split('.')[0]
-            name_parts = file_name_without_ext.split('_')
             
-            # Извлекаем параметры из имени файла
-            start_freq = DEFAULT_PARAMS['start_freq']
-            bandwidth = 1
-            record_time = DEFAULT_PARAMS['record_time']
-            identifier = f'AN{row_position}'
+            # Пытаемся извлечь параметры из имени файла
+            params = self.extract_params_from_filename(file_name_without_ext)
             
-            if len(name_parts) >= 4:
-                try:
-                    identifier = str(name_parts[0])
-                    start_freq = int(name_parts[1])
-                    bandwidth = int(name_parts[2])
-                    record_time = int(name_parts[3])
-                except ValueError:
-                    return True, f'Установите параметры вручную: {file_name}'
-            
-            end_freq = start_freq + bandwidth
-            
-            # Сохраняем данные файла
-            self.files_data[row_position] = {
+            # Сохраняем данные анализа
+            self.subjects_data[subject_code]['analyses'][analysis_index] = {
                 'path': file_path,
-                'file_name': file_name,
+                'original_file_name': file_name,
+                'file_name': file_name,  # Временно, будет переименован при сохранении
                 'channels': {},
-                'params': {
+                'params': params
+            }
+            
+            # Получаем каналы
+            for channel_name in self.data_parser.get_channel_names():
+                channel = self.data_parser.get_channel(channel_name)
+                if channel and not channel.data.empty:
+                    self.subjects_data[subject_code]['analyses'][analysis_index]['channels'][channel_name] = channel
+            
+            # Создаём процессор для файла
+            self.subjects_data[subject_code]['analyses'][analysis_index]['processor'] = Processor(
+                self.subjects_data[subject_code]['analyses'][analysis_index]
+            )
+            
+            return True, file_name
+            
+        except Exception as e:
+            return False, f'Ошибка при загрузке файла: {str(e)}'
+    
+    def extract_params_from_filename(self, filename):
+        """Извлечение параметров из имени файла"""
+        # Стандартный формат: КОДПРЕДМЕТА_СТАРТОВАЯЧАСТОТА_ШИРИНАПОЛОСЫ_ВРЕМЯЗАПИСИ
+        parts = filename.split('_')
+        
+        if len(parts) >= 4:
+            try:
+                start_freq = int(parts[1])
+                bandwidth = int(parts[2])
+                record_time = int(parts[3])
+                end_freq = start_freq + bandwidth
+                
+                return {
                     'start_freq': start_freq,
                     'end_freq': end_freq,
                     'record_time': record_time,
@@ -62,27 +89,37 @@ class DataManager:
                     'fixedlevel': DEFAULT_PARAMS['fixedlevel'],
                     'gain': DEFAULT_PARAMS['gain']
                 }
-            }
-            
-            # Получаем каналы
-            for channel_name in self.data_parser.get_channel_names():
-                channel = self.data_parser.get_channel(channel_name)
-                if channel and not channel.data.empty:
-                    self.files_data[row_position]['channels'][channel_name] = channel
-            
-            # Создаём процессор для файла
-            self.files_data[row_position]['processor'] = Processor(self.files_data[row_position])
-            
-            return True, file_name
-            
-        except Exception as e:
-            return False, f'Ошибка при загрузке файла: {str(e)}'
+            except ValueError:
+                pass
+        
+        # Если не удалось извлечь, используем значения по умолчанию
+        return {
+            'start_freq': DEFAULT_PARAMS['start_freq'],
+            'end_freq': DEFAULT_PARAMS['end_freq'],
+            'record_time': DEFAULT_PARAMS['record_time'],
+            'cut_second': DEFAULT_PARAMS['cut_second'],
+            'fixedlevel': DEFAULT_PARAMS['fixedlevel'],
+            'gain': DEFAULT_PARAMS['gain']
+        }
     
-    def save_measurement_data(self, channels_data, params):
-        """Сохранение данных измерения в файл и возврат информации для таблицы"""
+    def generate_standard_filename(self, subject_code, params):
+        """Генерация стандартизированного имени файла"""
+        start_freq = int(params['start_freq'])
+        bandwidth = int(params['end_freq'] - params['start_freq'])
+        record_time = int(params['record_time'])
+        
+        return f"{subject_code}_{start_freq}_{bandwidth}_{record_time}.csv"
+    
+    def save_measurement_data(self, channels_data, params, subject_code=None):
+        """Сохранение данных измерения в файл"""
         try:
-            timestamp = datetime.now().strftime("%d%m%Y_%H%M%S")
-            file_name = f"measurement_{timestamp}.csv"
+            if subject_code is None:
+                subject_code = f"M{datetime.now().strftime('%d%m%Y_%H%M%S')}"
+            
+            self.initialize_subject(subject_code)
+            
+            # Генерируем стандартизированное имя файла
+            file_name = self.generate_standard_filename(subject_code, params)
             file_path = os.path.join(MEASUREMENTS_DIR, file_name)
             
             os.makedirs(MEASUREMENTS_DIR, exist_ok=True)
@@ -101,31 +138,42 @@ class DataManager:
             # Сохраняем в файл
             all_data.to_csv(file_path, index=False)
             
+            # Создаем новый индекс анализа
+            analysis_index = self.get_next_analysis_index(subject_code)
+            
             # Подготавливаем данные для таблицы
-            table_data = {
+            analysis_data = {
                 'path': file_path,
+                'original_file_name': file_name,
                 'file_name': file_name,
                 'channels': channels_data,
-                'params': {
-                    'start_freq': params.get('start_freq', DEFAULT_PARAMS['start_freq']),
-                    'end_freq': params.get('end_freq', DEFAULT_PARAMS['end_freq']),
-                    'record_time': params.get('record_time', DEFAULT_PARAMS['record_time']),
-                    'cut_second': DEFAULT_PARAMS['cut_second'],
-                    'fixedlevel': DEFAULT_PARAMS['fixedlevel'],
-                    'gain': DEFAULT_PARAMS['gain']
-                }
+                'params': params
             }
             
-            table_data['processor'] = Processor(table_data)
+            analysis_data['processor'] = Processor(analysis_data)
             
-            return True, table_data, file_name
+            # Сохраняем данные
+            self.subjects_data[subject_code]['analyses'][analysis_index] = analysis_data
+            
+            return True, subject_code, analysis_index, file_name
             
         except Exception as e:
-            return False, None, f'Ошибка при сохранении данных: {str(e)}'
+            return False, None, None, f'Ошибка при сохранении данных: {str(e)}'
     
-    def save_analysis(self, table_data, parent):
-        """Сохранение анализа в папку tables"""
-        if not self.files_data:
+    def get_next_analysis_index(self, subject_code):
+        """Получение следующего индекса анализа для предмета"""
+        if subject_code not in self.subjects_data:
+            return 0
+        
+        analyses = self.subjects_data[subject_code]['analyses']
+        if not analyses:
+            return 0
+        
+        return max(analyses.keys()) + 1
+    
+    def save_analysis(self, tree_manager, save_selected_only=False, parent=None):
+        """Сохранение анализа"""
+        if not self.subjects_data:
             QMessageBox.warning(parent, 'Предупреждение', 'Нет данных для сохранения')
             return False
         
@@ -147,37 +195,72 @@ class DataManager:
         
         try:
             analysis_data = {
-                'rows': [],
+                'subjects': {},
                 'files': {}
             }
             
-            for row, data in self.files_data.items():
-                try:
-                    src_file = data['path']
-                    dst_file = os.path.join(folder_name, data['file_name'])
-                    shutil.copy2(src_file, dst_file)
-                except Exception:
-                    QMessageBox.critical(parent, 'Ошибка', 'Строки таблицы не имеют привязки, данные сохраняться без исходных файлов')
+            # Определяем, какие анализы сохранять
+            subjects_to_save = {}
+            if save_selected_only:
+                # Сохраняем только выбранные анализы
+                selected_analyses = tree_manager.get_selected_analyses()
+                for subject_code, analysis_index in selected_analyses:
+                    if subject_code not in subjects_to_save:
+                        subjects_to_save[subject_code] = []
+                    subjects_to_save[subject_code].append(analysis_index)
+            else:
+                # Сохраняем все анализы
+                for subject_code, subject_data in self.subjects_data.items():
+                    subjects_to_save[subject_code] = list(subject_data['analyses'].keys())
+            
+            # Копируем файлы и сохраняем информацию
+            for subject_code, analysis_indices in subjects_to_save.items():
+                if subject_code not in self.subjects_data:
+                    continue
                 
-                # Получаем данные из таблицы
-                subject_code = table_data.get_subject_code(row)
-                
-                row_data = {
-                    'subject_code': subject_code,
-                    'file_name': data['file_name'],
-                    'params': data['params'],
-                    'processor': data['processor'],
-                    'channels_data': {}
+                subject_data = self.subjects_data[subject_code]
+                analysis_data['subjects'][subject_code] = {
+                    'analyses': {},
+                    'metadata': subject_data.get('metadata', {})
                 }
                 
-                for channel_name, channel in data['channels'].items():
-                    row_data['channels_data'][channel_name] = {
-                        'data': channel.data.to_dict(),
-                        'name': channel.name
+                for analysis_index in analysis_indices:
+                    if analysis_index not in subject_data['analyses']:
+                        continue
+                    
+                    analysis = subject_data['analyses'][analysis_index]
+                    
+                    try:
+                        # Переименовываем файл в стандартный формат
+                        standard_filename = self.generate_standard_filename(subject_code, analysis['params'])
+                        src_file = analysis['path']
+                        dst_file = os.path.join(folder_name, standard_filename)
+                        shutil.copy2(src_file, dst_file)
+                        
+                        # Обновляем имя файла в данных
+                        analysis['file_name'] = standard_filename
+                        
+                    except Exception as e:
+                        QMessageBox.warning(parent, 'Предупреждение', 
+                                           f'Ошибка копирования файла {analysis["file_name"]}: {str(e)}')
+                    
+                    # Сохраняем информацию об анализе
+                    analysis_info = {
+                        'file_name': standard_filename,
+                        'params': analysis['params'],
+                        'processor': analysis['processor'],
+                        'channels_data': {}
                     }
-                
-                analysis_data['rows'].append((row, row_data))
-                analysis_data['files'][row] = data['file_name']
+                    
+                    # Сохраняем данные каналов
+                    for channel_name, channel in analysis['channels'].items():
+                        analysis_info['channels_data'][channel_name] = {
+                            'data': channel.data.to_dict(),
+                            'name': channel.name
+                        }
+                    
+                    analysis_data['subjects'][subject_code]['analyses'][analysis_index] = analysis_info
+                    analysis_data['files'][(subject_code, analysis_index)] = standard_filename
             
             with open(file_name, 'wb') as f:
                 pickle.dump(analysis_data, f)
@@ -213,42 +296,45 @@ class DataManager:
                 analysis_data = pickle.load(f)
             
             # Очищаем текущие данные
-            self.files_data = {}
+            self.subjects_data = {}
             for dialog in self.open_dialogs.values():
                 dialog.close()
             self.open_dialogs = {}
             
-            # Сортируем строки по номеру
-            sorted_rows = sorted(analysis_data['rows'], key=lambda x: x[0])
             loaded_data = []
             
-            for old_row, row_data in sorted_rows:
-                file_path = os.path.join(folder_name, row_data['file_name'])
-                file_exists = os.path.exists(file_path)
+            for subject_code, subject_info in analysis_data['subjects'].items():
+                self.initialize_subject(subject_code)
                 
-                # Восстанавливаем внутренние данные
-                channels = {}
-                for channel_name, channel_data in row_data['channels_data'].items():
-                    channel = type('Channel', (), {})()
-                    channel.name = channel_data['name']
-                    channel.data = pd.DataFrame(channel_data['data'])
-                    channels[channel_name] = channel
-                
-                # Сохраняем данные файла
-                self.files_data[old_row] = {
-                    'path': file_path if file_exists else None,
-                    'file_name': row_data['file_name'],
-                    'params': row_data['params'],
-                    'processor': row_data['processor'],
-                    'channels': channels
-                }
-                
-                loaded_data.append({
-                    'row': old_row,
-                    'row_data': row_data,
-                    'file_path': file_path,
-                    'file_exists': file_exists
-                })
+                for analysis_index, analysis_info in subject_info['analyses'].items():
+                    file_path = os.path.join(folder_name, analysis_info['file_name'])
+                    file_exists = os.path.exists(file_path)
+                    
+                    # Восстанавливаем данные каналов
+                    channels = {}
+                    for channel_name, channel_data in analysis_info['channels_data'].items():
+                        channel = type('Channel', (), {})()
+                        channel.name = channel_data['name']
+                        channel.data = pd.DataFrame(channel_data['data'])
+                        channels[channel_name] = channel
+                    
+                    # Сохраняем данные анализа
+                    self.subjects_data[subject_code]['analyses'][analysis_index] = {
+                        'path': file_path if file_exists else None,
+                        'original_file_name': analysis_info['file_name'],
+                        'file_name': analysis_info['file_name'],
+                        'params': analysis_info['params'],
+                        'processor': analysis_info['processor'],
+                        'channels': channels
+                    }
+                    
+                    loaded_data.append({
+                        'subject_code': subject_code,
+                        'analysis_index': analysis_index,
+                        'analysis_info': analysis_info,
+                        'file_path': file_path,
+                        'file_exists': file_exists
+                    })
             
             QMessageBox.information(parent, 'Успех', 'Анализ успешно загружен')
             return loaded_data
@@ -257,29 +343,41 @@ class DataManager:
             QMessageBox.critical(parent, 'Ошибка', f'Ошибка при загрузке анализа: {str(e)}')
             return None
     
-    def get_file_data(self, row):
-        """Получение данных файла по строке"""
-        return self.files_data.get(row)
+    def get_analysis_data(self, subject_code, analysis_index):
+        """Получение данных анализа"""
+        if (subject_code in self.subjects_data and 
+            analysis_index in self.subjects_data[subject_code]['analyses']):
+            return self.subjects_data[subject_code]['analyses'][analysis_index]
+        return None
     
-    def set_file_data(self, row, data):
-        """Установка данных файла для строки"""
-        self.files_data[row] = data
+    def update_analysis_params(self, subject_code, analysis_index, params):
+        """Обновление параметров анализа"""
+        analysis_data = self.get_analysis_data(subject_code, analysis_index)
+        if analysis_data:
+            analysis_data['params'] = params
     
-    def delete_file_data(self, row):
-        """Удаление данных файла по строке"""
-        if row in self.files_data:
-            del self.files_data[row]
+    def move_analysis_data(self, old_subject, new_subject, analysis_index):
+        """Перемещение данных анализа между предметами"""
+        analysis_data = self.get_analysis_data(old_subject, analysis_index)
+        if not analysis_data:
+            return False
+        
+        # Удаляем из старого предмета
+        if old_subject in self.subjects_data and analysis_index in self.subjects_data[old_subject]['analyses']:
+            del self.subjects_data[old_subject]['analyses'][analysis_index]
+        
+        # Добавляем в новый предмет
+        self.initialize_subject(new_subject)
+        self.subjects_data[new_subject]['analyses'][analysis_index] = analysis_data
+        
+        return True
     
-    def update_file_params(self, row, params):
-        """Обновление параметров файла"""
-        if row in self.files_data:
-            self.files_data[row]['params'] = params
-    
-    def register_dialog(self, row, dialog):
+    def register_dialog(self, subject_code, analysis_index, dialog):
         """Регистрация открытого диалога"""
-        self.open_dialogs[row] = dialog
+        self.open_dialogs[(subject_code, analysis_index)] = dialog
     
-    def unregister_dialog(self, row):
+    def unregister_dialog(self, subject_code, analysis_index):
         """Удаление диалога из регистрации"""
-        if row in self.open_dialogs:
-            del self.open_dialogs[row]
+        key = (subject_code, analysis_index)
+        if key in self.open_dialogs:
+            del self.open_dialogs[key]

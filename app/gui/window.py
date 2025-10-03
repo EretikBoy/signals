@@ -1,10 +1,11 @@
 #gui/window.py
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QLabel, QMessageBox, QHBoxLayout, QPushButton, QTableWidget
+    QMainWindow, QWidget, QVBoxLayout, QLabel, QMessageBox, 
+    QHBoxLayout, QPushButton, QTreeWidget
 )
 from PyQt6.QtCore import QEvent
 
-from gui.table_manager import TableManager
+from gui.tree_manager import TreeManager
 from gui.instrument_manager import InstrumentManager
 from gui.worker_manager import WorkerManager
 from core.data_manager import DataManager
@@ -13,12 +14,12 @@ from utils.constants import *
 
 
 class MainWindow(QMainWindow):
-    """Главное окно приложения - координатор всех компонентов"""
+    """Главное окно приложения с древовидной таблицей предметов и анализов"""
     
     def __init__(self):
         super().__init__()
         self.setWindowTitle('Анализатор каналов осциллографа')
-        self.setGeometry(100, 100, 1200, 800)
+        self.setGeometry(100, 100, 1400, 800)
         
         # Инициализация менеджеров
         self.data_manager = DataManager()
@@ -30,7 +31,7 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(central_widget)
         
         # Инициализация UI компонентов
-        self.setup_table_section(main_layout)
+        self.setup_tree_section(main_layout)
         self.setup_instruments_section(main_layout)
         
         # Устанавливаем обработчик клавиш
@@ -39,54 +40,53 @@ class MainWindow(QMainWindow):
         # Запускаем обнаружение приборов
         self.instrument_manager.start_instrument_detection()
     
-    def setup_table_section(self, main_layout):
-        """Настройка секции таблицы"""
-        title_label = QLabel('Таблица загруженных файлов')
+    def setup_tree_section(self, main_layout):
+        """Настройка секции древовидной таблицы"""
+        title_label = QLabel('Структура предметов и анализов')
         title_label.setStyleSheet('font-size: 16px; font-weight: bold;')
         main_layout.addWidget(title_label)
         
-        # Создаем таблицу
-        table_widget = QTableWidget()
-        self.table_manager = TableManager(table_widget)
+        # Создаем древовидную таблицу
+        tree_widget = QTreeWidget()
+        self.tree_manager = TreeManager(tree_widget)
         
-        # Создаем кнопки управления таблицей
-        self.setup_table_buttons(main_layout)
+        # Создаем кнопки управления
+        self.setup_tree_buttons(main_layout)
         
-        main_layout.addWidget(table_widget)
+        main_layout.addWidget(tree_widget)
         
-        # Подключаем сигналы таблицы
-        self.connect_table_signals()
+        # Подключаем сигналы дерева
+        self.connect_tree_signals()
+        
+        # Добавляем начальный предмет
+        self.tree_manager.add_subject("AN1")
     
-    def setup_table_buttons(self, main_layout):
-        """Создание кнопок управления таблицей"""
-        table_button_layout = QHBoxLayout()
+    def setup_tree_buttons(self, main_layout):
+        """Создание кнопок управления древовидной таблицей"""
+        tree_button_layout = QHBoxLayout()
         
-        add_row_button = QPushButton('Добавить предмет')
-        add_row_button.clicked.connect(self.table_manager.add_table_row)
+        add_subject_button = QPushButton('Добавить предмет')
+        add_subject_button.clicked.connect(self.add_subject)
         
-        load_button = QPushButton('Загрузить файл')
-        load_button.clicked.connect(self.load_file)
+        load_files_button = QPushButton('Добавить файлы в текущий предмет')
+        load_files_button.clicked.connect(self.tree_manager.load_files_to_current_subject)
         
-        load_multiple_button = QPushButton('Загрузить несколько файлов')
-        load_multiple_button.clicked.connect(self.table_manager.load_multiple_files)
+        save_all_button = QPushButton('Сохранить всю таблицу')
+        save_all_button.clicked.connect(self.save_all_analysis)
         
-        delete_button = QPushButton('Удалить выбранные строки (Del)')
-        delete_button.clicked.connect(self.table_manager.delete_selected_rows)
-        
-        save_analysis_button = QPushButton('Сохранить анализ')
-        save_analysis_button.clicked.connect(self.save_analysis)
+        save_selected_button = QPushButton('Сохранить выбранные анализы')
+        save_selected_button.clicked.connect(self.save_selected_analysis)
         
         load_analysis_button = QPushButton('Загрузить анализ')
         load_analysis_button.clicked.connect(self.load_analysis)
         
-        table_button_layout.addWidget(add_row_button)
-        table_button_layout.addWidget(load_button)
-        table_button_layout.addWidget(load_multiple_button)
-        table_button_layout.addWidget(delete_button)
-        table_button_layout.addWidget(save_analysis_button)
-        table_button_layout.addWidget(load_analysis_button)
+        tree_button_layout.addWidget(add_subject_button)
+        tree_button_layout.addWidget(load_files_button)
+        tree_button_layout.addWidget(save_all_button)
+        tree_button_layout.addWidget(save_selected_button)
+        tree_button_layout.addWidget(load_analysis_button)
         
-        main_layout.addLayout(table_button_layout)
+        main_layout.addLayout(tree_button_layout)
     
     def setup_instruments_section(self, main_layout):
         """Настройка секции приборов"""
@@ -97,12 +97,13 @@ class MainWindow(QMainWindow):
         # Подключаем сигналы приборов
         self.connect_instrument_signals()
     
-    def connect_table_signals(self):
-        """Подключение сигналов таблицы"""
-        self.table_manager.file_loaded.connect(self.on_file_loaded)
-        self.table_manager.row_added.connect(self.on_row_added)
-        self.table_manager.rows_deleted.connect(self.on_rows_deleted)
-        self.table_manager.graph_requested.connect(self.on_graph_requested)
+    def connect_tree_signals(self):
+        """Подключение сигналов древовидной таблицы"""
+        self.tree_manager.file_loaded.connect(self.on_file_loaded)
+        self.tree_manager.subject_added.connect(self.on_subject_added)
+        self.tree_manager.analysis_added.connect(self.on_analysis_added)
+        self.tree_manager.item_selected.connect(self.on_item_selected)
+        self.tree_manager.analysis_moved.connect(self.on_analysis_moved)
     
     def connect_instrument_signals(self):
         """Подключение сигналов приборов"""
@@ -122,86 +123,103 @@ class MainWindow(QMainWindow):
         self.worker_manager.instruments_detected.connect(self.instrument_manager.on_instruments_detected)
         self.worker_manager.instruments_detection_error.connect(self.instrument_manager.on_detection_error)
     
-    def load_file(self):
-        """Загрузка файла в новую строку"""
-        row = self.table_manager.add_table_row()
-        self.table_manager.load_file_for_row(row)
+    def add_subject(self):
+        """Добавление нового предмета"""
+        self.tree_manager.add_subject()
     
-    def on_file_loaded(self, row, file_path):
+    def on_file_loaded(self, subject_code, file_path):
         """Обработка загрузки файла"""
-        success, result = self.data_manager.parse_file(file_path, row)
+        # Создаем новый анализ в дереве
+        analysis_index = self.tree_manager.add_analysis_to_subject(subject_code, {
+            'file_name': 'Загрузка...',
+            'params': {
+                'start_freq': 0,
+                'end_freq': 0,
+                'record_time': 0
+            }
+        })
         
-        if success:
-            if isinstance(result, str) and 'вручную' in result:
-                # Файл загружен, но нужна ручная настройка параметров
-                self.table_manager.update_row_after_file_load(row, True, result, result)
+        if analysis_index is not None:
+            # Парсим файл
+            success, result = self.data_manager.parse_file(subject_code, file_path, analysis_index)
+            
+            if success:
+                if isinstance(result, str) and 'вручную' in result:
+                    # Файл загружен, но нужна ручная настройка параметров
+                    self.tree_manager.update_analysis_display(subject_code, analysis_index, True, result, result)
+                else:
+                    # Успешная загрузка
+                    file_name = result
+                    self.tree_manager.update_analysis_display(subject_code, analysis_index, True, file_name)
+                    
+                    # Обновляем параметры в дереве
+                    analysis_data = self.data_manager.get_analysis_data(subject_code, analysis_index)
+                    if analysis_data:
+                        self.tree_manager.update_analysis_params(subject_code, analysis_index, analysis_data['params'])
             else:
-                # Успешная загрузка
-                file_name = result
-                self.table_manager.update_row_after_file_load(row, True, file_name)
-                
-                # Обновляем параметры в таблице
-                file_data = self.data_manager.get_file_data(row)
-                self.table_manager.update_row_params(row, file_data['params'])
-                self.table_manager.update_row_subject_code(row, f'AN{row}')
-        else:
-            # Ошибка загрузки
-            self.table_manager.update_row_after_file_load(row, False, None, result)
+                # Ошибка загрузки
+                self.tree_manager.update_analysis_display(subject_code, analysis_index, False, None, result)
     
-    def on_row_added(self, row):
-        """Обработка добавления новой строки"""
-        # Можно добавить дополнительную логику при добавлении строки
+    def on_subject_added(self, subject_code):
+        """Обработка добавления нового предмета"""
+        self.data_manager.initialize_subject(subject_code)
+    
+    def on_analysis_added(self, subject_code, analysis_index):
+        """Обработка добавления нового анализа"""
+        # Автоматически инициализируется в data_manager при загрузке файла
         pass
     
-    def on_rows_deleted(self, rows):
-        """Обработка удаления строк"""
-        for row in rows:
-            self.data_manager.delete_file_data(row)
-            self.data_manager.unregister_dialog(row)
-    
-    def on_graph_requested(self, row):
-        """Обработка запроса на открытие графика"""
-        file_data = self.data_manager.get_file_data(row)
-        if not file_data:
-            QMessageBox.warning(self, 'Ошибка', 'Данные файла не найдены')
+    def on_item_selected(self, subject_code, analysis_index):
+        """Обработка выбора элемента (открытие графика)"""
+        if analysis_index == -1:
+            return  # Выбран предмет, а не анализ
+        
+        analysis_data = self.data_manager.get_analysis_data(subject_code, analysis_index)
+        if not analysis_data:
+            QMessageBox.warning(self, 'Ошибка', 'Данные анализа не найдены')
             return
         
-        # Проверяем, не открыт ли уже диалог для этой строки
-        if row in self.data_manager.open_dialogs:
-            dialog = self.data_manager.open_dialogs[row]
+        # Проверяем, не открыт ли уже диалог
+        key = (subject_code, analysis_index)
+        if key in self.data_manager.open_dialogs:
+            dialog = self.data_manager.open_dialogs[key]
             dialog.raise_()
             dialog.activateWindow()
             return
         
         # Создаем диалог
         dialog = GraphDialog(
-            file_data['channels'], 
-            file_data['params'], 
-            file_data['processor'], 
-            file_data['file_name'], 
+            analysis_data['channels'], 
+            analysis_data['params'], 
+            analysis_data['processor'], 
+            analysis_data['file_name'], 
             self
         )
         
         # Регистрируем диалог
-        self.data_manager.register_dialog(row, dialog)
+        self.data_manager.register_dialog(subject_code, analysis_index, dialog)
         
         # Подключаем сигнал закрытия
-        dialog.finished.connect(lambda: self.on_graph_dialog_closed(row))
+        dialog.finished.connect(lambda: self.on_graph_dialog_closed(subject_code, analysis_index))
         
         dialog.show()
     
-    def on_graph_dialog_closed(self, row):
+    def on_graph_dialog_closed(self, subject_code, analysis_index):
         """Обработка закрытия диалога с графиками"""
-        if row in self.data_manager.open_dialogs:
-            dialog = self.data_manager.open_dialogs[row]
+        key = (subject_code, analysis_index)
+        if key in self.data_manager.open_dialogs:
+            dialog = self.data_manager.open_dialogs[key]
             
             # Обновляем параметры
-            if row in self.data_manager.files_data:
-                self.data_manager.update_file_params(row, dialog.params)
-                self.table_manager.update_row_params(row, dialog.params)
+            self.data_manager.update_analysis_params(subject_code, analysis_index, dialog.params)
+            self.tree_manager.update_analysis_params(subject_code, analysis_index, dialog.params)
             
             # Удаляем диалог из регистрации
-            self.data_manager.unregister_dialog(row)
+            self.data_manager.unregister_dialog(subject_code, analysis_index)
+    
+    def on_analysis_moved(self, old_subject, new_subject, analysis_index):
+        """Обработка перемещения анализа между предметами"""
+        self.data_manager.move_analysis_data(old_subject, new_subject, analysis_index)
     
     def on_measurement_started(self, params):
         """Обработка начала измерения"""
@@ -239,17 +257,26 @@ class MainWindow(QMainWindow):
                 'params': params
             }
         
+        # Получаем текущий выбранный предмет или создаем новый
+        current_subject = self.tree_manager.get_selected_subject()
+        if not current_subject:
+            current_subject = self.tree_manager.add_subject()
+        
         # Добавляем данные в таблицу
-        success, table_data, result = self.data_manager.save_measurement_data(channels_data, params or {})
+        success, subject_code, analysis_index, result = self.data_manager.save_measurement_data(
+            channels_data, params or {}, current_subject
+        )
         
         if success:
-            row = self.table_manager.add_table_row()
-            self.data_manager.set_file_data(row, table_data)
+            # Добавляем анализ в дерево
+            self.tree_manager.add_analysis_to_subject(subject_code, {
+                'file_name': result,
+                'params': params or {}
+            })
             
-            # Обновляем UI таблицы
-            self.table_manager.update_row_after_file_load(row, True, table_data['file_name'])
-            self.table_manager.update_row_params(row, table_data['params'])
-            self.table_manager.update_row_subject_code(row, f"M{table_data['file_name'].split('_')[1]}")
+            # Обновляем отображение
+            self.tree_manager.update_analysis_display(subject_code, analysis_index, True, result)
+            self.tree_manager.update_analysis_params(subject_code, analysis_index, params or {})
         else:
             self.on_log_message(result)
     
@@ -260,53 +287,66 @@ class MainWindow(QMainWindow):
     
     def on_oscilloscope_read_requested(self):
         """Обработка запроса на чтение данных с осциллографа"""
-        instruments = self.instrument_manager.get_selected_instruments()
-        if not instruments:
+        oscilloscope = self.instrument_manager.get_selected_oscilloscope()
+        if not oscilloscope:
             return
         
         # Запускаем чтение данных
         self.worker_manager.start_oscilloscope_reading(
-            instruments['oscilloscope']['resource'],
-            instruments['oscilloscope']['type']
+            oscilloscope['resource'],
+            oscilloscope['type']
         )
         
         # Обновляем UI
-        self.instrument_manager.set_ui_enabled(False, enable_measure=False)
+        self.instrument_manager.set_reading_state(True)
     
     def on_oscilloscope_data_ready(self, channels_data):
         """Обработка данных с осциллографа"""
-        self.instrument_manager.set_ui_enabled(True)
+        self.instrument_manager.set_reading_state(False)
         self.on_log_message("Данные с осциллографа успешно получены")
         
+        # Получаем текущий выбранный предмет или создаем новый
+        current_subject = self.tree_manager.get_selected_subject()
+        if not current_subject:
+            current_subject = self.tree_manager.add_subject()
+        
         # Добавляем данные в таблицу
-        success, table_data, result = self.data_manager.save_measurement_data(
+        success, subject_code, analysis_index, result = self.data_manager.save_measurement_data(
             channels_data, 
-            self.instrument_manager.get_measurement_params() or {}
+            self.instrument_manager.get_measurement_params() or {},
+            current_subject
         )
         
         if success:
-            row = self.table_manager.add_table_row()
-            self.data_manager.set_file_data(row, table_data)
+            # Добавляем анализ в дерево
+            self.tree_manager.add_analysis_to_subject(subject_code, {
+                'file_name': result,
+                'params': self.instrument_manager.get_measurement_params() or {}
+            })
             
-            # Обновляем UI таблицы
-            self.table_manager.update_row_after_file_load(row, True, table_data['file_name'])
-            self.table_manager.update_row_params(row, table_data['params'])
-            self.table_manager.update_row_subject_code(row, f"OSC{table_data['file_name'].split('_')[1]}")
+            # Обновляем отображение
+            self.tree_manager.update_analysis_display(subject_code, analysis_index, True, result)
+            self.tree_manager.update_analysis_params(subject_code, analysis_index, 
+                                                   self.instrument_manager.get_measurement_params() or {})
         else:
             self.on_log_message(result)
     
     def on_oscilloscope_data_error(self, error_message):
         """Обработка ошибки чтения данных с осциллографа"""
-        self.instrument_manager.set_ui_enabled(True)
+        self.instrument_manager.set_reading_state(False)
         self.on_log_message(f"Ошибка чтения данных: {error_message}")
     
     def on_log_message(self, message):
         """Обработка сообщения для лога"""
         self.instrument_manager.log(message)
     
-    def save_analysis(self):
-        """Сохранение анализа"""
-        self.data_manager.save_analysis(self.table_manager, self)
+    def save_all_analysis(self):
+        """Сохранение всей таблицы"""
+        self.data_manager.save_analysis(self.tree_manager, save_selected_only=False, parent=self)
+    
+    def save_selected_analysis(self):
+        """Сохранение только выбранных анализов"""
+        self.data_manager.save_analysis(self.tree_manager, save_selected_only=True, parent=self)
     
     def load_analysis(self):
         """Загрузка анализа"""
@@ -314,42 +354,50 @@ class MainWindow(QMainWindow):
         if not loaded_data:
             return
         
-        # Очищаем таблицу перед загрузкой
-        self.table_manager.clear_table()
+        # Очищаем дерево перед загрузкой
+        self.tree_manager.clear_tree()
         
+        # Загружаем предметы и анализы
         for item in loaded_data:
-            row = item['row']
-            row_data = item['row_data']
+            subject_code = item['subject_code']
+            analysis_index = item['analysis_index']
+            analysis_info = item['analysis_info']
             file_exists = item['file_exists']
             
-            # Добавляем строку
-            self.table_manager.add_table_row()
+            # Добавляем предмет, если его нет
+            if subject_code not in self.tree_manager.subject_items:
+                self.tree_manager.add_subject(subject_code)
             
-            # Обновляем UI строки
-            file_button = self.table_manager.table.cellWidget(row, 1)
-            if file_button is not None:
-                if not file_exists:
-                    file_button.setText(f'Файл недоступен:\n{row_data["file_name"]}')
-                    self.table_manager.set_button_style(file_button, 'error')
-                else:
-                    file_button.setText(row_data['file_name'])
-                    self.table_manager.set_button_style(file_button, 'success')
+            # Добавляем анализ
+            self.tree_manager.add_analysis_to_subject(subject_code, {
+                'file_name': analysis_info['file_name'],
+                'params': analysis_info['params']
+            })
             
-            graph_button = self.table_manager.table.cellWidget(row, 2)
-            if graph_button is not None:
-                graph_button.setEnabled(True)
-                graph_button.setText('Открыть графики')
+            # Обновляем отображение
+            if file_exists:
+                self.tree_manager.update_analysis_display(subject_code, analysis_index, True, analysis_info['file_name'])
+            else:
+                self.tree_manager.update_analysis_display(subject_code, analysis_index, False, 
+                                                         analysis_info['file_name'], "Файл не найден")
             
-            # Обновляем параметры
-            self.table_manager.update_row_params(row, row_data['params'])
-            self.table_manager.update_row_subject_code(row, row_data['subject_code'])
+            self.tree_manager.update_analysis_params(subject_code, analysis_index, analysis_info['params'])
     
     def eventFilter(self, obj, event):
         """Обработка событий"""
-        if event.type() == QEvent.Type.KeyPress and event.key() == event.key().Key_Delete:
-            self.table_manager.delete_selected_rows()
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Delete:
+            # Обработка удаления через Delete key
+            current_subject = self.tree_manager.get_selected_subject()
+            current_analysis = self.tree_manager.get_selected_analysis_index()
+            
+            if current_analysis != -1:
+                self.tree_manager.delete_current_analysis()
+            elif current_subject:
+                self.tree_manager.delete_current_subject()
+            
             return True
         return super().eventFilter(obj, event)
+                
     
     def closeEvent(self, event):
         """Обработка закрытия приложения"""
@@ -361,45 +409,3 @@ class MainWindow(QMainWindow):
             dialog.close()
         
         event.accept()
-
-    def on_oscilloscope_read_requested(self):
-        """Обработка запроса на чтение данных с осциллографа"""
-        oscilloscope = self.instrument_manager.get_selected_oscilloscope()
-        if not oscilloscope:
-            return
-    
-        # Запускаем чтение данных
-        self.worker_manager.start_oscilloscope_reading(
-            oscilloscope['resource'],
-            oscilloscope['type']
-        )
-    
-        # Обновляем UI
-        self.instrument_manager.set_reading_state(True)
-
-    def on_oscilloscope_data_ready(self, channels_data):
-        """Обработка данных с осциллографа"""
-        self.instrument_manager.set_reading_state(False)
-        self.on_log_message("Данные с осциллографа успешно получены")
-        
-        # Добавляем данные в таблицу
-        success, table_data, result = self.data_manager.save_measurement_data(
-            channels_data, 
-            self.instrument_manager.get_measurement_params() or {}
-        )
-        
-        if success:
-            row = self.table_manager.add_table_row()
-            self.data_manager.set_file_data(row, table_data)
-            
-            # Обновляем UI таблицы
-            self.table_manager.update_row_after_file_load(row, True, table_data['file_name'])
-            self.table_manager.update_row_params(row, table_data['params'])
-            self.table_manager.update_row_subject_code(row, f"OSC{table_data['file_name'].split('_')[1]}")
-        else:
-            self.on_log_message(result)
-
-    def on_oscilloscope_data_error(self, error_message):
-        """Обработка ошибки чтения данных с осциллографа"""
-        self.instrument_manager.set_reading_state(False)
-        self.on_log_message(f"Ошибка чтения данных: {error_message}")
