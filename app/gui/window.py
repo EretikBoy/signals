@@ -3,8 +3,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QLabel, QMessageBox, 
     QHBoxLayout, QPushButton, QTreeWidget
 )
-from PyQt6.QtCore import QEvent
-
+from PyQt6.QtCore import QEvent, Qt
 from gui.tree_manager import TreeManager
 from gui.instrument_manager import InstrumentManager
 from gui.worker_manager import WorkerManager
@@ -12,6 +11,8 @@ from core.data_manager import DataManager
 from gui.graph_dialog import GraphDialog
 from utils.constants import *
 
+import logging
+logger = logging.getLogger(__name__)
 
 class MainWindow(QMainWindow):
     """Главное окно приложения с древовидной таблицей предметов и анализов"""
@@ -368,20 +369,20 @@ class MainWindow(QMainWindow):
             if subject_code not in self.tree_manager.subject_items:
                 self.tree_manager.add_subject(subject_code)
             
-            # Добавляем анализ
-            self.tree_manager.add_analysis_to_subject(subject_code, {
+            # Добавляем анализ с ПРАВИЛЬНЫМ индексом
+            added_index = self.tree_manager.add_analysis_to_subject(subject_code, {
                 'file_name': analysis_info['file_name'],
                 'params': analysis_info['params']
             })
             
-            # Обновляем отображение
+            # ОБНОВЛЯЕМ ОТОБРАЖЕНИЕ С ПРАВИЛЬНЫМ ИНДЕКСОМ
             if file_exists:
-                self.tree_manager.update_analysis_display(subject_code, analysis_index, True, analysis_info['file_name'])
+                self.tree_manager.update_analysis_display(subject_code, added_index, True, analysis_info['file_name'])
             else:
-                self.tree_manager.update_analysis_display(subject_code, analysis_index, False, 
-                                                         analysis_info['file_name'], "Файл не найден")
+                self.tree_manager.update_analysis_display(subject_code, added_index, False, 
+                                                        analysis_info['file_name'], "Файл не найден")
             
-            self.tree_manager.update_analysis_params(subject_code, analysis_index, analysis_info['params'])
+            self.tree_manager.update_analysis_params(subject_code, added_index, analysis_info['params'])
     
     def eventFilter(self, obj, event):
         """Обработка событий"""
@@ -409,3 +410,44 @@ class MainWindow(QMainWindow):
             dialog.close()
         
         event.accept()
+
+    def setup_tree_section(self, main_layout):
+        """Настройка секции древовидной таблицы"""
+        title_label = QLabel('Структура предметов и анализов')
+        title_label.setStyleSheet('font-size: 16px; font-weight: bold;')
+        main_layout.addWidget(title_label)
+        
+        # TreeManager теперь сам создает TreeWidget
+        self.tree_manager = TreeManager()
+        
+        # Создаем кнопки управления
+        self.setup_tree_buttons(main_layout)
+        
+        main_layout.addWidget(self.tree_manager.tree)
+        
+        # Подключаем сигналы дерева
+        self.connect_tree_signals()
+        
+        # Добавляем начальный предмет
+        self.tree_manager.add_subject("AN1")
+
+    def on_analysis_moved(self, old_subject, new_subject, analysis_index):
+        """Обработка перемещения анализа между предметами"""
+        logger.debug(f"MainWindow: обработка перемещения {old_subject} -> {new_subject}, {analysis_index}")
+        
+        success = self.data_manager.move_analysis_data(old_subject, new_subject, analysis_index)
+        if success:
+            self.on_log_message(f"Анализ перемещен из {old_subject} в {new_subject}")
+            
+            # Обновляем отображение в дереве
+            analysis_data = self.data_manager.get_analysis_data(new_subject, analysis_index)
+            if analysis_data:
+                # Отображаем оригинальное имя файла, а не стандартизированное
+                self.tree_manager.update_analysis_display(new_subject, analysis_index, True, analysis_data['original_file_name'])
+                self.tree_manager.update_analysis_params(new_subject, analysis_index, analysis_data['params'])
+                logger.debug(f"MainWindow: отображение обновлено для {new_subject}, {analysis_index}")
+            else:
+                logger.warning(f"MainWindow: не удалось получить данные анализа после перемещения")
+        else:
+            self.on_log_message(f"Ошибка при перемещении анализа из {old_subject} в {new_subject}")
+            logger.error(f"MainWindow: ошибка перемещения данных анализа")

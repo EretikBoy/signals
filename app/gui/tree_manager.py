@@ -1,13 +1,20 @@
 #gui/tree_manager.py
 
 from PyQt6.QtWidgets import (
-    QTreeWidget, QTreeWidgetItem, QHeaderView, QPushButton, 
+    QTreeWidgetItem, QHeaderView, QPushButton, 
     QFileDialog, QMessageBox, QMenu, QCheckBox, QHBoxLayout, QWidget
 )
 from PyQt6.QtCore import pyqtSignal, QObject, Qt
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent
+from PyQt6.QtGui import QAction
 
+from gui.tree_widget import TreeWidget
 from utils.constants import BUTTON_STYLE_NORMAL, BUTTON_STYLE_SUCCESS, BUTTON_STYLE_ERROR, BUTTON_STYLE_WARNING
+
+import logging
+
+# Настройка логирования
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 class TreeManager(QObject):
@@ -20,9 +27,9 @@ class TreeManager(QObject):
     item_selected = pyqtSignal(str, int)  # subject_code, analysis_index (-1 для предмета)
     analysis_moved = pyqtSignal(str, str, int)  # old_subject, new_subject, analysis_index
     
-    def __init__(self, tree_widget):
+    def __init__(self):
         super().__init__()
-        self.tree = tree_widget
+        self.tree = TreeWidget()
         self.setup_tree()
         
         # Данные для хранения связи между элементами дерева и данными
@@ -30,14 +37,12 @@ class TreeManager(QObject):
         self.analysis_items = {}  # (subject_code, analysis_index) -> QTreeWidgetItem
         self.next_analysis_index = 0
         
-        # Настройка drag & drop
-        self.tree.setDragEnabled(True)
-        self.tree.setAcceptDrops(True)
-        self.tree.setDropIndicatorShown(True)
-        self.tree.setDragDropMode(QTreeWidget.DragDropMode.DragDrop)
+        # Подключаем сигнал перемещения
+        self.tree.analysis_moved.connect(self.handle_analysis_moved)
     
     def setup_tree(self):
         """Настройка древовидной таблицы"""
+        logger.debug("Настройка древовидной таблицы")
         self.tree.setColumnCount(7)
         self.tree.setHeaderLabels([
             'Выбор', 
@@ -49,15 +54,84 @@ class TreeManager(QObject):
             'Время записи (сек)'
         ])
         
-        self.tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         
         # Подключаем контекстное меню
         self.tree.customContextMenuRequested.connect(self.show_context_menu)
     
+    def handle_analysis_moved(self, old_subject, new_subject, analysis_index):
+        """Обработка перемещения анализа между предметами"""
+        logger.debug(f"Обработка перемещения: {old_subject} -> {new_subject}, индекс: {analysis_index}")
+        
+        # Обновляем внутренние структуры данных
+        key = (old_subject, analysis_index)
+        if key in self.analysis_items:
+            analysis_item = self.analysis_items.pop(key)
+            self.analysis_items[(new_subject, analysis_index)] = analysis_item
+            
+            # ОБНОВЛЯЕМ КНОПКУ ГРАФИКОВ для нового предмета
+            logger.debug(f"Обновление кнопки графиков для {new_subject}, {analysis_index}")
+            self.update_graph_button(analysis_item, new_subject, analysis_index)
+            
+            # ОБНОВЛЯЕМ ЧЕКБОКС для нового предмета
+            logger.debug(f"Обновление чекбокса для {new_subject}, {analysis_index}")
+            self.update_checkbox(analysis_item, new_subject, analysis_index)
+            
+            # Испускаем сигнал для обновления DataManager
+            self.analysis_moved.emit(old_subject, new_subject, analysis_index)
+        else:
+            logger.warning(f"Не найден анализ для перемещения: {key}")
+    
+    def update_graph_button(self, analysis_item, subject_code, analysis_index):
+        """Обновление кнопки открытия графиков после перемещения"""
+        logger.debug(f"Обновление кнопки графиков: {subject_code}, {analysis_index}")
+        
+        # Создаем новую кнопку с правильными параметрами
+        new_graph_button = QPushButton('Открыть графики')
+        logger.debug(f"Создана новая кнопка: {new_graph_button}")
+        
+        new_graph_button.clicked.connect(lambda: self.item_selected.emit(subject_code, analysis_index))
+        logger.debug(f"Кнопка подключена к сигналу: {subject_code}, {analysis_index}")
+        
+        self.set_button_style(new_graph_button, 'normal')
+        
+        # Заменяем кнопку в дереве
+        self.tree.setItemWidget(analysis_item, 3, new_graph_button)
+        logger.debug(f"Кнопка установлена в столбец 3 для элемента: {analysis_item}")
+    
+    def update_checkbox(self, analysis_item, subject_code, analysis_index):
+        """Обновление чекбокса после перемещения"""
+        logger.debug(f"Обновление чекбокса: {subject_code}, {analysis_index}")
+        
+        # Сохраняем состояние старого чекбокса
+        old_checkbox_widget = self.tree.itemWidget(analysis_item, 0)
+        old_checked = False
+        if old_checkbox_widget:
+            layout = old_checkbox_widget.layout()
+            if layout and layout.count() > 0:
+                old_checkbox = layout.itemAt(0).widget()
+                if isinstance(old_checkbox, QCheckBox):
+                    old_checked = old_checkbox.isChecked()
+                    logger.debug(f"Состояние старого чекбокса: {old_checked}")
+        
+        # Создаем новый чекбокс
+        checkbox_widget = QWidget()
+        checkbox_layout = QHBoxLayout(checkbox_widget)
+        checkbox_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        checkbox_layout.setContentsMargins(0, 0, 0, 0)
+        
+        checkbox = QCheckBox()
+        checkbox.setChecked(old_checked)  # Сохраняем состояние
+        checkbox_layout.addWidget(checkbox)
+        
+        self.tree.setItemWidget(analysis_item, 0, checkbox_widget)
+        logger.debug(f"Чекбокс установлен в столбец 0 для элемента: {analysis_item}")
+    
     def add_subject(self, subject_code=None):
         """Добавление нового предмета"""
+        logger.debug(f"Добавление предмета: {subject_code}")
+        
         if subject_code is None:
             subject_code = f"AN{len(self.subject_items) + 1}"
         
@@ -71,6 +145,9 @@ class TreeManager(QObject):
         subject_item.setText(1, subject_code)
         subject_item.setFlags(subject_item.flags() | Qt.ItemFlag.ItemIsEditable)
         
+        # Разрешаем drop на предметы
+        subject_item.setFlags(subject_item.flags() | Qt.ItemFlag.ItemIsDropEnabled)
+        
         # Делаем предмет расширяемым
         subject_item.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
         
@@ -78,10 +155,13 @@ class TreeManager(QObject):
         self.subject_items[subject_code] = subject_item
         
         self.subject_added.emit(subject_code)
+        logger.debug(f"Предмет добавлен: {subject_code}")
         return subject_code
     
     def add_analysis_to_subject(self, subject_code, file_data):
         """Добавление анализа к предмету"""
+        logger.debug(f"Добавление анализа к предмету: {subject_code}")
+        
         if subject_code not in self.subject_items:
             QMessageBox.warning(None, 'Ошибка', f'Предмет {subject_code} не найден')
             return None
@@ -90,8 +170,16 @@ class TreeManager(QObject):
         analysis_index = self.next_analysis_index
         self.next_analysis_index += 1
         
+        logger.debug(f"Создание анализа с индексом: {analysis_index}")
+        
         # Создаем элемент анализа
         analysis_item = QTreeWidgetItem(subject_item)
+        
+        # Разрешаем drag для анализов
+        analysis_item.setFlags(analysis_item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
+        
+        # Сохраняем analysis_index в данных элемента для drag & drop
+        analysis_item.setData(0, Qt.ItemDataRole.UserRole, analysis_index)
         
         # Чекбокс для выбора
         checkbox_widget = QWidget()
@@ -104,6 +192,7 @@ class TreeManager(QObject):
         checkbox_layout.addWidget(checkbox)
         
         self.tree.setItemWidget(analysis_item, 0, checkbox_widget)
+        logger.debug("Чекбокс установлен")
         
         # Информация об анализе
         analysis_item.setText(1, "")  # Код предмета наследуется от родителя
@@ -111,9 +200,14 @@ class TreeManager(QObject):
         
         # Кнопка открытия графиков
         graph_button = QPushButton('Открыть графики')
+        logger.debug(f"Создана кнопка графиков: {graph_button}")
+        
         graph_button.clicked.connect(lambda: self.item_selected.emit(subject_code, analysis_index))
+        logger.debug(f"Кнопка подключена к сигналу: {subject_code}, {analysis_index}")
+        
         self.set_button_style(graph_button, 'normal')
         self.tree.setItemWidget(analysis_item, 3, graph_button)
+        logger.debug(f"Кнопка установлена в столбец 3")
         
         # Параметры
         analysis_item.setText(4, str(file_data['params']['start_freq']))
@@ -127,10 +221,15 @@ class TreeManager(QObject):
         subject_item.setExpanded(True)
         
         self.analysis_added.emit(subject_code, analysis_index)
+        logger.debug(f"Анализ добавлен: {subject_code}, {analysis_index}")
+        
+        # ВОЗВРАЩАЕМ ИНДЕКС для использования при обновлении отображения
         return analysis_index
     
     def load_files_to_subject(self, subject_code, file_paths):
         """Загрузка файлов в указанный предмет"""
+        logger.debug(f"Загрузка файлов в предмет: {subject_code}")
+        
         if subject_code not in self.subject_items:
             QMessageBox.warning(None, 'Ошибка', f'Предмет {subject_code} не найден')
             return
@@ -164,8 +263,11 @@ class TreeManager(QObject):
             analysis_item = self.analysis_items[key]
             checkbox_widget = self.tree.itemWidget(analysis_item, 0)
             if checkbox_widget:
-                checkbox = checkbox_widget.layout().itemAt(0).widget()
-                return checkbox.isChecked()
+                layout = checkbox_widget.layout()
+                if layout and layout.count() > 0:
+                    checkbox = layout.itemAt(0).widget()
+                    if isinstance(checkbox, QCheckBox):
+                        return checkbox.isChecked()
         return False
     
     def get_all_subjects(self):
@@ -190,17 +292,25 @@ class TreeManager(QObject):
     
     def update_analysis_display(self, subject_code, analysis_index, success, file_name, message=None):
         """Обновление отображения анализа после загрузки"""
+        logger.debug(f"Обновление отображения анализа: {subject_code}, {analysis_index}, успех: {success}")
+        
         key = (subject_code, analysis_index)
         if key not in self.analysis_items:
+            logger.warning(f"Анализ не найден для обновления: {key}")
             return
         
         analysis_item = self.analysis_items[key]
         graph_button = self.tree.itemWidget(analysis_item, 3)
         
+        if graph_button is None:
+            logger.warning("Кнопка графиков не найдена при обновлении отображения")
+            return
+            
         if success:
             analysis_item.setText(2, file_name)
             graph_button.setText('Открыть графики')
             self.set_button_style(graph_button, 'success')
+            logger.debug("Отображение анализа обновлено успешно")
         else:
             if message and 'вручную' in message:
                 analysis_item.setText(2, f'Установите параметры: {file_name}')
@@ -208,6 +318,7 @@ class TreeManager(QObject):
             else:
                 analysis_item.setText(2, 'Ошибка загрузки')
                 self.set_button_style(graph_button, 'error')
+            logger.debug("Отображение анализа обновлено с ошибкой")
     
     def update_analysis_params(self, subject_code, analysis_index, params):
         """Обновление параметров анализа"""
@@ -218,42 +329,6 @@ class TreeManager(QObject):
             analysis_item.setText(5, str(params['end_freq']))
             analysis_item.setText(6, str(params['record_time']))
     
-    def move_analysis(self, analysis_key, new_subject_code):
-        """Перемещение анализа в другой предмет"""
-        old_subject_code, analysis_index = analysis_key
-        
-        if old_subject_code == new_subject_code:
-            return  # Не нужно перемещать в тот же предмет
-        
-        if new_subject_code not in self.subject_items:
-            QMessageBox.warning(None, 'Ошибка', f'Предмет {new_subject_code} не найден')
-            return
-        
-        # Получаем элемент анализа
-        analysis_item = self.analysis_items.get((old_subject_code, analysis_index))
-        if not analysis_item:
-            return
-        
-        # Получаем новый родительский элемент
-        new_subject_item = self.subject_items[new_subject_code]
-        
-        # Клонируем элемент анализа
-        new_analysis_item = analysis_item.clone()
-        
-        # Обновляем связи
-        del self.analysis_items[(old_subject_code, analysis_index)]
-        self.analysis_items[(new_subject_code, analysis_index)] = new_analysis_item
-        
-        # Удаляем старый элемент и добавляем новый
-        old_subject_item = analysis_item.parent()
-        old_subject_item.removeChild(analysis_item)
-        new_subject_item.addChild(new_analysis_item)
-        
-        # Обновляем отображение
-        new_subject_item.setExpanded(True)
-        
-        self.analysis_moved.emit(old_subject_code, new_subject_code, analysis_index)
-    
     def show_context_menu(self, position):
         """Показать контекстное меню"""
         item = self.tree.itemAt(position)
@@ -263,23 +338,21 @@ class TreeManager(QObject):
         menu = QMenu()
         
         if not item.parent():  # Предмет
-            add_analysis_action = menu.addAction("Добавить анализ")
-            delete_subject_action = menu.addAction("Удалить предмет")
+            add_analysis_action = QAction("Добавить анализ", self.tree)
+            delete_subject_action = QAction("Удалить предмет", self.tree)
             
-            action = menu.exec(self.tree.mapToGlobal(position))
+            menu.addAction(add_analysis_action)
+            menu.addAction(delete_subject_action)
             
-            if action == add_analysis_action:
-                self.load_files_to_current_subject()
-            elif action == delete_subject_action:
-                self.delete_current_subject()
+            add_analysis_action.triggered.connect(self.load_files_to_current_subject)
+            delete_subject_action.triggered.connect(self.delete_current_subject)
         
         else:  # Анализ
-            delete_analysis_action = menu.addAction("Удалить анализ")
-            
-            action = menu.exec(self.tree.mapToGlobal(position))
-            
-            if action == delete_analysis_action:
-                self.delete_current_analysis()
+            delete_analysis_action = QAction("Удалить анализ", self.tree)
+            menu.addAction(delete_analysis_action)
+            delete_analysis_action.triggered.connect(self.delete_current_analysis)
+        
+        menu.exec(self.tree.mapToGlobal(position))
     
     def load_files_to_current_subject(self):
         """Загрузка файлов в текущий выбранный предмет"""
@@ -323,7 +396,9 @@ class TreeManager(QObject):
             
             # Удаляем предмет
             subject_item = self.subject_items.pop(subject_code)
-            self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(subject_item))
+            index = self.tree.indexOfTopLevelItem(subject_item)
+            if index >= 0:
+                self.tree.takeTopLevelItem(index)
     
     def delete_current_analysis(self):
         """Удаление текущего выбранного анализа"""
@@ -347,7 +422,8 @@ class TreeManager(QObject):
         if reply == QMessageBox.StandardButton.Yes:
             analysis_item = self.analysis_items.pop(key)
             parent_item = analysis_item.parent()
-            parent_item.removeChild(analysis_item)
+            if parent_item:
+                parent_item.removeChild(analysis_item)
     
     def clear_tree(self):
         """Очистка всего дерева"""

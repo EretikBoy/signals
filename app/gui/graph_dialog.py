@@ -121,7 +121,7 @@ class GraphDialog(QDialog):
         
         settings_layout.addWidget(QLabel('Пороговый уровень (В):'), row, 0)
         self.fixedlevel_spin = QDoubleSpinBox()
-        self.fixedlevel_spin.setRange(0.0, 1.0)
+        self.fixedlevel_spin.setRange(0.0, 100)
         self.fixedlevel_spin.setSingleStep(0.01)
         self.fixedlevel_spin.setValue(self.params.get('fixedlevel', 0.1))
         self.fixedlevel_spin.valueChanged.connect(self.apply_values)

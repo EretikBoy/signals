@@ -17,3 +17,4 @@ tables
 app/__pycache__
 app/build
 app/dist
+*.csv

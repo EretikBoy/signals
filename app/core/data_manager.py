@@ -1,4 +1,5 @@
 #core/data_manager.py
+
 import os
 import shutil
 import pickle
@@ -9,6 +10,9 @@ from PyQt6.QtWidgets import QMessageBox, QFileDialog
 from core.parser import DataParser
 from core.dataprocessor import Processor
 from utils.constants import DEFAULT_PARAMS, MEASUREMENTS_DIR, TABLES_DIR, ANALYSIS_EXTENSION
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 class DataManager:
@@ -32,7 +36,7 @@ class DataManager:
         try:
             self.initialize_subject(subject_code)
             
-            file_format = file_path.split('.')[-1]
+            file_format = file_path.split('.')[-1].lower()
             success = self.data_parser.parsefile(file_path, file_format)
             
             if not success:
@@ -48,7 +52,7 @@ class DataManager:
             self.subjects_data[subject_code]['analyses'][analysis_index] = {
                 'path': file_path,
                 'original_file_name': file_name,
-                'file_name': file_name,  # Временно, будет переименован при сохранении
+                'file_name': file_name,  # Сохраняем оригинальное имя
                 'channels': {},
                 'params': params
             }
@@ -104,11 +108,16 @@ class DataManager:
     
     def generate_standard_filename(self, subject_code, params):
         """Генерация стандартизированного имени файла"""
-        start_freq = int(params['start_freq'])
-        bandwidth = int(params['end_freq'] - params['start_freq'])
-        record_time = int(params['record_time'])
-        
-        return f"{subject_code}_{start_freq}_{bandwidth}_{record_time}.csv"
+        try:
+            start_freq = int(params.get('start_freq', DEFAULT_PARAMS['start_freq']))
+            end_freq = int(params.get('end_freq', DEFAULT_PARAMS['end_freq']))
+            bandwidth = end_freq - start_freq
+            record_time = int(params.get('record_time', DEFAULT_PARAMS['record_time']))
+            
+            return f"{subject_code}_{start_freq}_{bandwidth}_{record_time}.csv"
+        except (ValueError, TypeError):
+            # Если параметры невалидны, используем значения по умолчанию
+            return f"{subject_code}_{DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['end_freq'] - DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['record_time']}.csv"
     
     def save_measurement_data(self, channels_data, params, subject_code=None):
         """Сохранение данных измерения в файл"""
@@ -145,7 +154,7 @@ class DataManager:
             analysis_data = {
                 'path': file_path,
                 'original_file_name': file_name,
-                'file_name': file_name,
+                'file_name': file_name,  # Используем стандартизированное имя для измерений
                 'channels': channels_data,
                 'params': params
             }
@@ -231,13 +240,15 @@ class DataManager:
                     analysis = subject_data['analyses'][analysis_index]
                     
                     try:
-                        # Переименовываем файл в стандартный формат
+                        # Переименовываем файл в стандартный формат только при сохранении в tables
                         standard_filename = self.generate_standard_filename(subject_code, analysis['params'])
                         src_file = analysis['path']
                         dst_file = os.path.join(folder_name, standard_filename)
+                        
+                        # Копируем файл с новым именем
                         shutil.copy2(src_file, dst_file)
                         
-                        # Обновляем имя файла в данных
+                        # Обновляем имя файла в данных только для сохраненного анализа
                         analysis['file_name'] = standard_filename
                         
                     except Exception as e:
@@ -246,7 +257,8 @@ class DataManager:
                     
                     # Сохраняем информацию об анализе
                     analysis_info = {
-                        'file_name': standard_filename,
+                        'file_name': standard_filename,  # Сохраняем стандартизированное имя
+                        'original_file_name': analysis['original_file_name'],  # Сохраняем оригинальное имя
                         'params': analysis['params'],
                         'processor': analysis['processor'],
                         'channels_data': {}
@@ -318,10 +330,13 @@ class DataManager:
                         channel.data = pd.DataFrame(channel_data['data'])
                         channels[channel_name] = channel
                     
-                    # Сохраняем данные анализа
-                    self.subjects_data[subject_code]['analyses'][analysis_index] = {
+                    # СОЗДАЕМ НОВЫЙ ИНДЕКС для текущей сессии
+                    new_analysis_index = self.get_next_analysis_index(subject_code)
+                    
+                    # Сохраняем данные анализа с НОВЫМ индексом
+                    self.subjects_data[subject_code]['analyses'][new_analysis_index] = {
                         'path': file_path if file_exists else None,
-                        'original_file_name': analysis_info['file_name'],
+                        'original_file_name': analysis_info.get('original_file_name', analysis_info['file_name']),
                         'file_name': analysis_info['file_name'],
                         'params': analysis_info['params'],
                         'processor': analysis_info['processor'],
@@ -330,7 +345,7 @@ class DataManager:
                     
                     loaded_data.append({
                         'subject_code': subject_code,
-                        'analysis_index': analysis_index,
+                        'analysis_index': new_analysis_index,  # ИСПОЛЬЗУЕМ НОВЫЙ ИНДЕКС
                         'analysis_info': analysis_info,
                         'file_path': file_path,
                         'file_exists': file_exists
@@ -358,17 +373,30 @@ class DataManager:
     
     def move_analysis_data(self, old_subject, new_subject, analysis_index):
         """Перемещение данных анализа между предметами"""
+        logger.debug(f"Перемещение данных анализа: {old_subject} -> {new_subject}, {analysis_index}")
+        
         analysis_data = self.get_analysis_data(old_subject, analysis_index)
         if not analysis_data:
+            logger.warning(f"Данные анализа не найдены: {old_subject}, {analysis_index}")
             return False
         
         # Удаляем из старого предмета
         if old_subject in self.subjects_data and analysis_index in self.subjects_data[old_subject]['analyses']:
             del self.subjects_data[old_subject]['analyses'][analysis_index]
+            logger.debug(f"Удалено из старого предмета: {old_subject}")
         
         # Добавляем в новый предмет
         self.initialize_subject(new_subject)
-        self.subjects_data[new_subject]['analyses'][analysis_index] = analysis_data
+        
+        # Создаем копию данных анализа
+        new_analysis_data = analysis_data.copy()
+        
+        # НЕ ПЕРЕИМЕНОВЫВАЕМ ФАЙЛ - сохраняем оригинальное имя
+        # Имя файла будет изменено только при сохранении анализа
+        logger.debug(f"Файл сохранен с оригинальным именем: {new_analysis_data['file_name']}")
+        
+        self.subjects_data[new_subject]['analyses'][analysis_index] = new_analysis_data
+        logger.debug(f"Добавлено в новый предмет: {new_subject}")
         
         return True
     
