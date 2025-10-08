@@ -163,6 +163,7 @@ class InstrumentWorker(QThread):
             # Запускаем генератор
             try:
                 self.update_signal.emit("Запуск генератора...")
+                time.sleep(0.5)
                 generator.set_output(True)
                 self.update_signal.emit("Генератор запущен")
             except Exception as e:

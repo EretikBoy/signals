@@ -1,4 +1,4 @@
-#core/data_manager.py
+# core/data_manager.py
 
 import os
 import shutil
@@ -37,7 +37,10 @@ class DataManager:
             self.initialize_subject(subject_code)
             
             file_format = file_path.split('.')[-1].lower()
-            success = self.data_parser.parsefile(file_path, file_format)
+            
+            # СОЗДАЕМ НОВЫЙ ПАРСЕР ДЛЯ КАЖДОГО ФАЙЛА
+            data_parser = DataParser()
+            success = data_parser.parsefile(file_path, file_format)
             
             if not success:
                 return False, f'Не удалось загрузить файл: {file_path}'
@@ -48,34 +51,41 @@ class DataManager:
             # Пытаемся извлечь параметры из имени файла
             params = self.extract_params_from_filename(file_name_without_ext)
             
+            # СОЗДАЕМ ИЗОЛИРОВАННЫЕ ДАННЫЕ ДЛЯ ЭТОГО АНАЛИЗА
+            analysis_channels = {}
+            for channel_name in data_parser.get_channel_names():
+                channel = data_parser.get_channel(channel_name)
+                if channel and not channel.data.empty:
+                    # СОЗДАЕМ КОПИЮ КАНАЛА, чтобы изолировать данные
+                    channel_copy = type('Channel', (), {})()
+                    channel_copy.name = channel.name
+                    channel_copy.data = channel.data.copy()  # Важно: копируем данные!
+                    analysis_channels[channel_name] = channel_copy
+            
             # Сохраняем данные анализа
-            self.subjects_data[subject_code]['analyses'][analysis_index] = {
+            analysis_data = {
                 'path': file_path,
                 'original_file_name': file_name,
-                'file_name': file_name,  # Сохраняем оригинальное имя
-                'channels': {},
+                'file_name': file_name,
+                'channels': analysis_channels,  # Используем изолированные каналы
                 'params': params
             }
             
-            # Получаем каналы
-            for channel_name in self.data_parser.get_channel_names():
-                channel = self.data_parser.get_channel(channel_name)
-                if channel and not channel.data.empty:
-                    self.subjects_data[subject_code]['analyses'][analysis_index]['channels'][channel_name] = channel
+            # СОЗДАЕМ ПРОЦЕССОР ТОЛЬКО ДЛЯ ЭТОГО АНАЛИЗА
+            analysis_data['processor'] = Processor(analysis_data)
             
-            # Создаём процессор для файла
-            self.subjects_data[subject_code]['analyses'][analysis_index]['processor'] = Processor(
-                self.subjects_data[subject_code]['analyses'][analysis_index]
-            )
+            self.subjects_data[subject_code]['analyses'][analysis_index] = analysis_data
+            
+            logger.debug(f"Файл {file_name} загружен. Каналы: {list(analysis_channels.keys())}")
             
             return True, file_name
             
         except Exception as e:
+            logger.error(f"Ошибка при загрузке файла {file_path}: {str(e)}")
             return False, f'Ошибка при загрузке файла: {str(e)}'
     
     def extract_params_from_filename(self, filename):
         """Извлечение параметров из имени файла"""
-        # Стандартный формат: КОДПРЕДМЕТА_СТАРТОВАЯЧАСТОТА_ШИРИНАПОЛОСЫ_ВРЕМЯЗАПИСИ
         parts = filename.split('_')
         
         if len(parts) >= 4:
@@ -96,7 +106,6 @@ class DataManager:
             except ValueError:
                 pass
         
-        # Если не удалось извлечь, используем значения по умолчанию
         return {
             'start_freq': DEFAULT_PARAMS['start_freq'],
             'end_freq': DEFAULT_PARAMS['end_freq'],
@@ -116,7 +125,6 @@ class DataManager:
             
             return f"{subject_code}_{start_freq}_{bandwidth}_{record_time}.csv"
         except (ValueError, TypeError):
-            # Если параметры невалидны, используем значения по умолчанию
             return f"{subject_code}_{DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['end_freq'] - DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['record_time']}.csv"
     
     def save_measurement_data(self, channels_data, params, subject_code=None):
@@ -127,15 +135,24 @@ class DataManager:
             
             self.initialize_subject(subject_code)
             
-            # Генерируем стандартизированное имя файла
             file_name = self.generate_standard_filename(subject_code, params)
             file_path = os.path.join(MEASUREMENTS_DIR, file_name)
             
             os.makedirs(MEASUREMENTS_DIR, exist_ok=True)
             
+            # СОЗДАЕМ ИЗОЛИРОВАННЫЕ КАНАЛЫ
+            isolated_channels = {}
+            for channel_name, channel in channels_data.items():
+                if hasattr(channel, 'data') and not channel.data.empty:
+                    # СОЗДАЕМ КОПИЮ КАНАЛА
+                    channel_copy = type('Channel', (), {})()
+                    channel_copy.name = channel.name
+                    channel_copy.data = channel.data.copy()  # Важно: копируем данные!
+                    isolated_channels[channel_name] = channel_copy
+            
             # Создаем DataFrame из данных каналов
             all_data = pd.DataFrame()
-            for channel_name, channel in channels_data.items():
+            for channel_name, channel in isolated_channels.items():
                 if hasattr(channel, 'data') and not channel.data.empty:
                     channel_df = channel.data.copy()
                     channel_df.columns = [f'{channel_name}_time', f'{channel_name}_amplitude']
@@ -150,23 +167,27 @@ class DataManager:
             # Создаем новый индекс анализа
             analysis_index = self.get_next_analysis_index(subject_code)
             
-            # Подготавливаем данные для таблицы
+            # Подготавливаем ИЗОЛИРОВАННЫЕ данные для таблицы
             analysis_data = {
                 'path': file_path,
                 'original_file_name': file_name,
-                'file_name': file_name,  # Используем стандартизированное имя для измерений
-                'channels': channels_data,
+                'file_name': file_name,
+                'channels': isolated_channels,
                 'params': params
             }
             
+            # СОЗДАЕМ ПРОЦЕССОР ТОЛЬКО ДЛЯ ЭТИХ ДАННЫХ
             analysis_data['processor'] = Processor(analysis_data)
             
             # Сохраняем данные
             self.subjects_data[subject_code]['analyses'][analysis_index] = analysis_data
             
+            logger.debug(f"Измерение сохранено. Каналы: {list(isolated_channels.keys())}")
+            
             return True, subject_code, analysis_index, file_name
             
         except Exception as e:
+            logger.error(f"Ошибка при сохранении измерения: {str(e)}")
             return False, None, None, f'Ошибка при сохранении данных: {str(e)}'
     
     def get_next_analysis_index(self, subject_code):
@@ -211,14 +232,12 @@ class DataManager:
             # Определяем, какие анализы сохранять
             subjects_to_save = {}
             if save_selected_only:
-                # Сохраняем только выбранные анализы
                 selected_analyses = tree_manager.get_selected_analyses()
                 for subject_code, analysis_index in selected_analyses:
                     if subject_code not in subjects_to_save:
                         subjects_to_save[subject_code] = []
                     subjects_to_save[subject_code].append(analysis_index)
             else:
-                # Сохраняем все анализы
                 for subject_code, subject_data in self.subjects_data.items():
                     subjects_to_save[subject_code] = list(subject_data['analyses'].keys())
             
@@ -240,27 +259,23 @@ class DataManager:
                     analysis = subject_data['analyses'][analysis_index]
                     
                     try:
-                        # Переименовываем файл в стандартный формат только при сохранении в tables
                         standard_filename = self.generate_standard_filename(subject_code, analysis['params'])
                         src_file = analysis['path']
                         dst_file = os.path.join(folder_name, standard_filename)
                         
-                        # Копируем файл с новым именем
                         shutil.copy2(src_file, dst_file)
-                        
-                        # Обновляем имя файла в данных только для сохраненного анализа
                         analysis['file_name'] = standard_filename
                         
                     except Exception as e:
                         QMessageBox.warning(parent, 'Предупреждение', 
                                            f'Ошибка копирования файла {analysis["file_name"]}: {str(e)}')
                     
-                    # Сохраняем информацию об анализе
+                    # ВАЖНО: НЕ сохраняем processor в файл анализа
                     analysis_info = {
-                        'file_name': standard_filename,  # Сохраняем стандартизированное имя
-                        'original_file_name': analysis['original_file_name'],  # Сохраняем оригинальное имя
+                        'file_name': standard_filename,
+                        'original_file_name': analysis['original_file_name'],
                         'params': analysis['params'],
-                        'processor': analysis['processor'],
+                        # 'processor': analysis['processor'],  # НЕ СЕРИАЛИЗУЕМ ПРОЦЕССОР
                         'channels_data': {}
                     }
                     
@@ -333,19 +348,26 @@ class DataManager:
                     # СОЗДАЕМ НОВЫЙ ИНДЕКС для текущей сессии
                     new_analysis_index = self.get_next_analysis_index(subject_code)
                     
-                    # Сохраняем данные анализа с НОВЫМ индексом
-                    self.subjects_data[subject_code]['analyses'][new_analysis_index] = {
+                    # СОЗДАЕМ ИЗОЛИРОВАННЫЕ ДАННЫЕ АНАЛИЗА
+                    isolated_analysis_data = {
                         'path': file_path if file_exists else None,
                         'original_file_name': analysis_info.get('original_file_name', analysis_info['file_name']),
                         'file_name': analysis_info['file_name'],
                         'params': analysis_info['params'],
-                        'processor': analysis_info['processor'],
                         'channels': channels
                     }
                     
+                    # СОЗДАЕМ НОВЫЙ ПРОЦЕССОР ДЛЯ ЭТИХ ДАННЫХ
+                    isolated_analysis_data['processor'] = Processor(isolated_analysis_data)
+                    
+                    # Сохраняем данные анализа с НОВЫМ индексом
+                    self.subjects_data[subject_code]['analyses'][new_analysis_index] = isolated_analysis_data
+                    
+                    logger.debug(f"Загружен анализ {analysis_info['file_name']}. Каналы: {list(channels.keys())}")
+                    
                     loaded_data.append({
                         'subject_code': subject_code,
-                        'analysis_index': new_analysis_index,  # ИСПОЛЬЗУЕМ НОВЫЙ ИНДЕКС
+                        'analysis_index': new_analysis_index,
                         'analysis_info': analysis_info,
                         'file_path': file_path,
                         'file_exists': file_exists
@@ -380,6 +402,10 @@ class DataManager:
             logger.warning(f"Данные анализа не найдены: {old_subject}, {analysis_index}")
             return False
         
+        # СОЗДАЕМ ГЛУБОКУЮ КОПИЮ ДАННЫХ АНАЛИЗА
+        import copy
+        new_analysis_data = copy.deepcopy(analysis_data)
+        
         # Удаляем из старого предмета
         if old_subject in self.subjects_data and analysis_index in self.subjects_data[old_subject]['analyses']:
             del self.subjects_data[old_subject]['analyses'][analysis_index]
@@ -388,12 +414,8 @@ class DataManager:
         # Добавляем в новый предмет
         self.initialize_subject(new_subject)
         
-        # Создаем копию данных анализа
-        new_analysis_data = analysis_data.copy()
-        
-        # НЕ ПЕРЕИМЕНОВЫВАЕМ ФАЙЛ - сохраняем оригинальное имя
-        # Имя файла будет изменено только при сохранении анализа
-        logger.debug(f"Файл сохранен с оригинальным именем: {new_analysis_data['file_name']}")
+        # СОЗДАЕМ НОВЫЙ ПРОЦЕССОР ДЛЯ ПЕРЕМЕЩЕННЫХ ДАННЫХ
+        new_analysis_data['processor'] = Processor(new_analysis_data)
         
         self.subjects_data[new_subject]['analyses'][analysis_index] = new_analysis_data
         logger.debug(f"Добавлено в новый предмет: {new_subject}")

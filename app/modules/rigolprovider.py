@@ -155,7 +155,6 @@ class RigolProvider:
         try:
             state = "ON" if enable else "OFF"
             self.visa.write(f"OUTP {state}")
-            time.sleep(0.1)
         except Exception as e:
             logger.error(f"Failed to set output state: {str(e)}")
             raise RigolConfigurationError(f"Failed to set output state: {str(e)}")

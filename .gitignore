@@ -18,3 +18,4 @@ app/__pycache__
 app/build
 app/dist
 *.csv
+app/logs
