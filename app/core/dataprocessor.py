@@ -2,6 +2,9 @@
 import numpy as np
 from typing import Dict, Any
 
+import logging
+logger = logging.getLogger(__name__)
+
 class Processor:
     '''
     Класс отвечает за удобное хранение данных и их обработку, позволяет модулям программы передавая процессор
@@ -68,7 +71,7 @@ class Processor:
         self.start_freq = self.params.get('start_freq', 1)
         self.end_freq = self.params.get('end_freq', 1)
         self.record_time = self.params.get('record_time', 1)
-        self.cut_second = self.params.get('cut_second', 1)
+        self.cut_second = self.params.get('cut_second', 0)
         self.fixedlevel = self.params.get('fixedlevel', 0.6)
         self.gain = self.params.get('gain', 7)
         self.bandwidth = self.end_freq - self.start_freq
@@ -148,16 +151,36 @@ class Processor:
         Если максимальная амплитуда на 0.5 сек, а cut_second = 0.1 сек,
         то начало сигнала будет на 0.6 секунде.
         """
+        logger.debug("=== НАЧАЛО _get_signal_start_index ===")
+    
         smoothed_data = self._precompute_smoothed_data()
-        first_channel = list(smoothed_data.values())[0]
+        if not smoothed_data:
+            logger.error("Нет smoothed_data для определения начала сигнала")
+            return 0
+        
+        first_channel_name = list(smoothed_data.keys())[0]
+        first_channel = smoothed_data[first_channel_name]
+        total_points = len(first_channel)
         
         # Находим индекс максимального значения
         max_idx = first_channel['Амплитуда'].idxmax()
+        max_amp = first_channel['Амплитуда'].max()
+        logger.debug(f"Максимальная амплитуда: {max_amp} на индексе {max_idx}")
         
-        # Применяем смещение cut_second
+        # Применяем смещение cut_second с защитой от выхода за границы
+        if len(first_channel) < 2:
+            logger.error("Недостаточно данных для вычисления time_step")
+            return 0
+            
         time_step = first_channel['Время'].iloc[1] - first_channel['Время'].iloc[0]
         offset_points = int(self.cut_second / time_step) if time_step > 0 else 0
-        signal_start = max(0, max_idx + offset_points)
+        
+        # ЗАЩИТА: не позволяем signal_start выйти за границы массива
+        signal_start = max(0, min(max_idx + offset_points, total_points - 1))
+        
+        logger.debug(f"cut_second: {self.cut_second}, time_step: {time_step}")
+        logger.debug(f"offset_points: {offset_points}, total_points: {total_points}")
+        logger.debug(f"Итоговый signal_start: {signal_start}")
         
         return signal_start
 
@@ -174,12 +197,45 @@ class Processor:
         - Зависит от параметров cut_second и record_time
         - При изменении этих параметров результаты обрезки будут пересчитаны
         """
-        signal_start = self._get_signal_start_index()
+        logger.debug("=== НАЧАЛО _get_cropped_indices ===")
+    
         smoothed_data = self._precompute_smoothed_data()
-        first_channel = list(smoothed_data.values())[0]
+        if not smoothed_data:
+            logger.error("Нет smoothed_data для вычисления индексов")
+            return 0, 0
         
+        first_channel_name = list(smoothed_data.keys())[0]
+        first_channel = smoothed_data[first_channel_name]
+        total_points = len(first_channel)
+        
+        logger.debug(f"Используем канал: {first_channel_name}")
+        logger.debug(f"Данные канала shape: {first_channel.shape}")
+        
+        # Вычисление signal_start с защитой
+        signal_start = self._get_signal_start_index()
+        
+        # Вычисление time_step
+        if len(first_channel) < 2:
+            logger.error("Недостаточно данных для вычисления time_step")
+            return 0, 0
+            
         time_step = first_channel['Время'].iloc[1] - first_channel['Время'].iloc[0]
-        points_to_crop = int(self.record_time / time_step) if time_step > 0 else 0
+        
+        # ВЫЧИСЛЕНИЕ МАКСИМАЛЬНО ВОЗМОЖНОГО points_to_crop
+        max_possible_points = total_points - signal_start
+        
+        # Если record_time слишком большой, корректируем его
+        requested_points = int(self.record_time / time_step) if time_step > 0 else 0
+        points_to_crop = min(requested_points, max_possible_points)
+        
+        # Если осталось слишком мало точек, используем все доступные
+        if points_to_crop < 10:  # Минимум 10 точек для анализа
+            points_to_crop = max_possible_points
+            logger.warning(f"Слишком мало точек для обрезки, используем все доступные: {points_to_crop}")
+        
+        logger.debug(f"record_time: {self.record_time}, time_step: {time_step}")
+        logger.debug(f"requested_points: {requested_points}, max_possible_points: {max_possible_points}")
+        logger.debug(f"Финальные индексы: signal_start={signal_start}, points_to_crop={points_to_crop}")
         
         return signal_start, points_to_crop
 

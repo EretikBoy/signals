@@ -180,6 +180,14 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, 'Ошибка', 'Данные анализа не найдены')
             return
         
+        logger.debug("=== ПРОВЕРКА ДАННЫХ ПЕРЕД ОТКРЫТИЕМ ГРАФИКА ===")
+        has_valid_data = False
+        for channel_name, channel in analysis_data['channels'].items():
+            if hasattr(channel, 'data') and channel.data is not None and not channel.data.empty:
+                logger.debug(f"Канал {channel_name}: данные валидны")
+                has_valid_data = True
+                break
+
         # Проверяем, не открыт ли уже диалог
         key = (subject_code, analysis_index)
         if key in self.data_manager.open_dialogs:
@@ -187,6 +195,7 @@ class MainWindow(QMainWindow):
             dialog.raise_()
             dialog.activateWindow()
             return
+        
         
         # Создаем диалог
         dialog = GraphDialog(
@@ -250,37 +259,38 @@ class MainWindow(QMainWindow):
         self.instrument_manager.set_measurement_state(False)
         self.on_log_message("Измерение успешно завершено")
         
-        # Сохраняем данные последнего измерения
-        params = self.instrument_manager.get_measurement_params()
-        if params:
-            self.instrument_manager.last_measurement_data = {
-                'channels': channels_data,
-                'params': params
-            }
+        # Получаем параметры измерения
+        measurement_params = self.instrument_manager.get_measurement_params() or {}
         
         # Получаем текущий выбранный предмет или создаем новый
         current_subject = self.tree_manager.get_selected_subject()
         if not current_subject:
             current_subject = self.tree_manager.add_subject()
+            logger.debug(f"Создан новый предмет для измерения: {current_subject}")
         
-        # Добавляем данные в таблицу
+        # Добавляем данные в таблицу - ИСПРАВЛЕННАЯ СТРОКА
         success, subject_code, analysis_index, result = self.data_manager.save_measurement_data(
-            channels_data, params or {}, current_subject
+            channels_data, measurement_params, current_subject
         )
         
         if success:
-            # Добавляем анализ в дерево
-            self.tree_manager.add_analysis_to_subject(subject_code, {
+            logger.debug(f"Данные измерения сохранены: {subject_code}, {analysis_index}")
+            
+            # Добавляем анализ в дерево - ИСПРАВЛЕННАЯ СТРОКА
+            added_index = self.tree_manager.add_analysis_to_subject(subject_code, {
                 'file_name': result,
-                'params': params or {}
-            })
+                'params': measurement_params  # используем measurement_params вместо повторного вызова
+            }, analysis_index)
+            
+            logger.debug(f"Анализ добавлен в дерево: {subject_code}, индекс: {added_index}")
             
             # Обновляем отображение
             self.tree_manager.update_analysis_display(subject_code, analysis_index, True, result)
-            self.tree_manager.update_analysis_params(subject_code, analysis_index, params or {})
+            self.tree_manager.update_analysis_params(subject_code, analysis_index, measurement_params)
         else:
+            logger.error(f"Ошибка сохранения измерения: {result}")
             self.on_log_message(result)
-    
+        
     def on_measurement_error(self, error_message):
         """Обработка ошибки измерения"""
         self.instrument_manager.set_measurement_state(False)
@@ -306,30 +316,38 @@ class MainWindow(QMainWindow):
         self.instrument_manager.set_reading_state(False)
         self.on_log_message("Данные с осциллографа успешно получены")
         
+        # Получаем параметры измерения
+        measurement_params = self.instrument_manager.get_measurement_params() or {}
+        
         # Получаем текущий выбранный предмет или создаем новый
         current_subject = self.tree_manager.get_selected_subject()
         if not current_subject:
             current_subject = self.tree_manager.add_subject()
+            logger.debug(f"Создан новый предмет для данных осциллографа: {current_subject}")
         
-        # Добавляем данные в таблицу
+        # Добавляем данные в таблицу - ИСПРАВЛЕННАЯ СТРОКА
         success, subject_code, analysis_index, result = self.data_manager.save_measurement_data(
             channels_data, 
-            self.instrument_manager.get_measurement_params() or {},
+            measurement_params,  # используем measurement_params
             current_subject
         )
         
         if success:
-            # Добавляем анализ в дерево
-            self.tree_manager.add_analysis_to_subject(subject_code, {
+            logger.debug(f"Данные осциллографа сохранены: {subject_code}, {analysis_index}")
+            
+            # Добавляем анализ в дерево - ИСПРАВЛЕННАЯ СТРОКА
+            added_index = self.tree_manager.add_analysis_to_subject(subject_code, {
                 'file_name': result,
-                'params': self.instrument_manager.get_measurement_params() or {}
-            })
+                'params': measurement_params  # используем measurement_params
+            }, analysis_index)
+            
+            logger.debug(f"Анализ осциллографа добавлен в дерево: {subject_code}, индекс: {added_index}")
             
             # Обновляем отображение
             self.tree_manager.update_analysis_display(subject_code, analysis_index, True, result)
-            self.tree_manager.update_analysis_params(subject_code, analysis_index, 
-                                                   self.instrument_manager.get_measurement_params() or {})
+            self.tree_manager.update_analysis_params(subject_code, analysis_index, measurement_params)
         else:
+            logger.error(f"Ошибка сохранения данных осциллографа: {result}")
             self.on_log_message(result)
     
     def on_oscilloscope_data_error(self, error_message):
@@ -361,21 +379,26 @@ class MainWindow(QMainWindow):
         # Загружаем предметы и анализы
         for item in loaded_data:
             subject_code = item['subject_code']
-            analysis_index = item['analysis_index']
+            analysis_index = item['analysis_index']  # Индекс из DataManager
             analysis_info = item['analysis_info']
             file_exists = item['file_exists']
+            
+            logger.debug(f"Загрузка анализа: {subject_code}, {analysis_index}")
             
             # Добавляем предмет, если его нет
             if subject_code not in self.tree_manager.subject_items:
                 self.tree_manager.add_subject(subject_code)
+                logger.debug(f"Добавлен предмет: {subject_code}")
             
-            # Добавляем анализ с ПРАВИЛЬНЫМ индексом
+            # Добавляем анализ с ПРАВИЛЬНЫМ индексом из DataManager
             added_index = self.tree_manager.add_analysis_to_subject(subject_code, {
                 'file_name': analysis_info['file_name'],
                 'params': analysis_info['params']
-            })
+            }, analysis_index)  # Явно передаем индекс
             
-            # ОБНОВЛЯЕМ ОТОБРАЖЕНИЕ С ПРАВИЛЬНЫМ ИНДЕКСОМ
+            logger.debug(f"Анализ добавлен: {subject_code}, запрошенный индекс: {analysis_index}, фактический: {added_index}")
+            
+            # Обновляем отображение
             if file_exists:
                 self.tree_manager.update_analysis_display(subject_code, added_index, True, analysis_info['file_name'])
             else:

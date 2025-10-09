@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime
 from PyQt6.QtWidgets import QMessageBox, QFileDialog
 
-from core.parser import DataParser
+from core.parser import DataParser, Channel
 from core.dataprocessor import Processor
 from utils.constants import DEFAULT_PARAMS, MEASUREMENTS_DIR, TABLES_DIR, ANALYSIS_EXTENSION
 
@@ -15,11 +15,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+
 class DataManager:
     """Управление данными с поддержкой иерархической структуры предметов и анализов"""
     
     def __init__(self):
-        self.data_parser = DataParser()
         self.subjects_data = {}  # subject_code -> {analyses: {analysis_index: data}, ...}
         self.open_dialogs = {}  # (subject_code, analysis_index) -> dialog
     
@@ -38,7 +38,7 @@ class DataManager:
             
             file_format = file_path.split('.')[-1].lower()
             
-            # СОЗДАЕМ НОВЫЙ ПАРСЕР ДЛЯ КАЖДОГО ФАЙЛА
+            # СОЗДАЕМ НОВЫЙ ПАРСЕР ДЛЯ КАЖДОГО ФАЙЛА - это исправляет баг с общими каналами
             data_parser = DataParser()
             success = data_parser.parsefile(file_path, file_format)
             
@@ -51,32 +51,26 @@ class DataManager:
             # Пытаемся извлечь параметры из имени файла
             params = self.extract_params_from_filename(file_name_without_ext)
             
-            # СОЗДАЕМ ИЗОЛИРОВАННЫЕ ДАННЫЕ ДЛЯ ЭТОГО АНАЛИЗА
-            analysis_channels = {}
-            for channel_name in data_parser.get_channel_names():
-                channel = data_parser.get_channel(channel_name)
-                if channel and not channel.data.empty:
-                    # СОЗДАЕМ КОПИЮ КАНАЛА, чтобы изолировать данные
-                    channel_copy = type('Channel', (), {})()
-                    channel_copy.name = channel.name
-                    channel_copy.data = channel.data.copy()  # Важно: копируем данные!
-                    analysis_channels[channel_name] = channel_copy
-            
             # Сохраняем данные анализа
-            analysis_data = {
+            self.subjects_data[subject_code]['analyses'][analysis_index] = {
                 'path': file_path,
                 'original_file_name': file_name,
                 'file_name': file_name,
-                'channels': analysis_channels,  # Используем изолированные каналы
+                'channels': {},
                 'params': params
             }
             
-            # СОЗДАЕМ ПРОЦЕССОР ТОЛЬКО ДЛЯ ЭТОГО АНАЛИЗА
-            analysis_data['processor'] = Processor(analysis_data)
+            for channel_name in data_parser.get_channel_names():
+                channel = data_parser.get_channel(channel_name)
+                if channel and not channel.data.empty:
+                    self.subjects_data[subject_code]['analyses'][analysis_index]['channels'][channel_name] = channel
             
-            self.subjects_data[subject_code]['analyses'][analysis_index] = analysis_data
+            # Создаём процессор для файла
+            self.subjects_data[subject_code]['analyses'][analysis_index]['processor'] = Processor(
+                self.subjects_data[subject_code]['analyses'][analysis_index]
+            )
             
-            logger.debug(f"Файл {file_name} загружен. Каналы: {list(analysis_channels.keys())}")
+            logger.debug(f"Файл {file_name} загружен. Каналы: {list(data_parser.get_channel_names())}")
             
             return True, file_name
             
@@ -128,67 +122,106 @@ class DataManager:
             return f"{subject_code}_{DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['end_freq'] - DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['record_time']}.csv"
     
     def save_measurement_data(self, channels_data, params, subject_code=None):
-        """Сохранение данных измерения в файл"""
         try:
             if subject_code is None:
                 subject_code = f"M{datetime.now().strftime('%d%m%Y_%H%M%S')}"
             
             self.initialize_subject(subject_code)
             
+            # Генерируем имя файла
             file_name = self.generate_standard_filename(subject_code, params)
             file_path = os.path.join(MEASUREMENTS_DIR, file_name)
-            
             os.makedirs(MEASUREMENTS_DIR, exist_ok=True)
             
-            # СОЗДАЕМ ИЗОЛИРОВАННЫЕ КАНАЛЫ
-            isolated_channels = {}
-            for channel_name, channel in channels_data.items():
-                if hasattr(channel, 'data') and not channel.data.empty:
-                    # СОЗДАЕМ КОПИЮ КАНАЛА
-                    channel_copy = type('Channel', (), {})()
-                    channel_copy.name = channel.name
-                    channel_copy.data = channel.data.copy()  # Важно: копируем данные!
-                    isolated_channels[channel_name] = channel_copy
-            
-            # Создаем DataFrame из данных каналов
-            all_data = pd.DataFrame()
-            for channel_name, channel in isolated_channels.items():
-                if hasattr(channel, 'data') and not channel.data.empty:
-                    channel_df = channel.data.copy()
-                    channel_df.columns = [f'{channel_name}_time', f'{channel_name}_amplitude']
-                    if all_data.empty:
-                        all_data = channel_df
-                    else:
-                        all_data = pd.concat([all_data, channel_df], axis=1)
-            
-            # Сохраняем в файл
-            all_data.to_csv(file_path, index=False)
-            
-            # Создаем новый индекс анализа
+            # Получаем следующий индекс анализа
             analysis_index = self.get_next_analysis_index(subject_code)
             
-            # Подготавливаем ИЗОЛИРОВАННЫЕ данные для таблицы
             analysis_data = {
                 'path': file_path,
                 'original_file_name': file_name,
                 'file_name': file_name,
-                'channels': isolated_channels,
+                'channels': {},
                 'params': params
             }
             
-            # СОЗДАЕМ ПРОЦЕССОР ТОЛЬКО ДЛЯ ЭТИХ ДАННЫХ
-            analysis_data['processor'] = Processor(analysis_data)
+            all_data = pd.DataFrame()
+            valid_channels = {}
             
-            # Сохраняем данные
+            for channel_name, channel_obj in channels_data.items():
+                try:
+                    # Извлекаем данные из объекта канала прибора
+                    if hasattr(channel_obj, 'data') and channel_obj.data is not None:
+                        df = channel_obj.data
+                        
+                        # Проверяем, что данные не пустые
+                        if not df.empty and len(df.columns) >= 2:
+                            # СОЗДАЕМ КАНАЛ В ФОРМАТЕ parser.Channel
+                            channel = Channel(channel_name)
+                            
+                            # Извлекаем время и амплитуду (первые две колонки)
+                            time_data = df.iloc[:, 0]
+                            amplitude_data = df.iloc[:, 1]
+                            
+                            # Устанавливаем данные в канал
+                            channel.set_data(time_data, amplitude_data)
+                            
+                            # Сохраняем канал
+                            analysis_data['channels'][channel_name] = channel
+                            valid_channels[channel_name] = channel
+                            
+                            # Добавляем в общий DataFrame для CSV
+                            channel_df = pd.DataFrame({
+                                f'{channel_name}_time': time_data,
+                                f'{channel_name}_amplitude': amplitude_data
+                            })
+                            
+                            if all_data.empty:
+                                all_data = channel_df
+                            else:
+                                all_data = pd.concat([all_data, channel_df], axis=1)
+                            
+                            logger.debug(f"Канал {channel_name} обработан: {len(time_data)} точек")
+                        else:
+                            logger.warning(f"Канал {channel_name}: пустые данные или недостаточно колонок")
+                    else:
+                        logger.warning(f"Канал {channel_name}: нет данных или атрибута 'data'")
+                        
+                except Exception as e:
+                    logger.error(f"Ошибка обработки канала {channel_name}: {str(e)}")
+                    continue
+            
+            if not valid_channels:
+                return False, None, None, "Нет валидных данных каналов для сохранения"
+            
+            # СОХРАНЯЕМ В CSV
+            try:
+                all_data.to_csv(file_path, index=False)
+                logger.info(f"Данные сохранены в {file_path}, форма: {all_data.shape}")
+            except Exception as e:
+                logger.error(f"Ошибка сохранения CSV: {str(e)}")
+                return False, None, None, f"Ошибка сохранения файла: {str(e)}"
+            
+            # СОЗДАЕМ ПРОЦЕССОР С ПРАВИЛЬНЫМИ ДАННЫМИ
+            try:
+                processor = Processor(analysis_data)
+                analysis_data['processor'] = processor
+                logger.debug("Процессор создан успешно")
+            except Exception as e:
+                logger.error(f"Ошибка создания процессора: {str(e)}")
+                return False, None, None, f"Ошибка создания процессора: {str(e)}"
+            
+            # СОХРАНЯЕМ В СТРУКТУРЕ ДАННЫХ
             self.subjects_data[subject_code]['analyses'][analysis_index] = analysis_data
             
-            logger.debug(f"Измерение сохранено. Каналы: {list(isolated_channels.keys())}")
+            logger.info(f"Измерение сохранено: {subject_code}, {analysis_index}, каналы: {list(valid_channels.keys())}")
             
             return True, subject_code, analysis_index, file_name
             
         except Exception as e:
-            logger.error(f"Ошибка при сохранении измерения: {str(e)}")
-            return False, None, None, f'Ошибка при сохранении данных: {str(e)}'
+            logger.error(f"Критическая ошибка при сохранении измерения: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False, None, None, f'Критическая ошибка: {str(e)}'
     
     def get_next_analysis_index(self, subject_code):
         """Получение следующего индекса анализа для предмета"""
@@ -275,7 +308,6 @@ class DataManager:
                         'file_name': standard_filename,
                         'original_file_name': analysis['original_file_name'],
                         'params': analysis['params'],
-                        # 'processor': analysis['processor'],  # НЕ СЕРИАЛИЗУЕМ ПРОЦЕССОР
                         'channels_data': {}
                     }
                     
@@ -348,22 +380,18 @@ class DataManager:
                     # СОЗДАЕМ НОВЫЙ ИНДЕКС для текущей сессии
                     new_analysis_index = self.get_next_analysis_index(subject_code)
                     
-                    # СОЗДАЕМ ИЗОЛИРОВАННЫЕ ДАННЫЕ АНАЛИЗА
-                    isolated_analysis_data = {
+                    # Сохраняем данные анализа с НОВЫМ индексом
+                    self.subjects_data[subject_code]['analyses'][new_analysis_index] = {
                         'path': file_path if file_exists else None,
                         'original_file_name': analysis_info.get('original_file_name', analysis_info['file_name']),
                         'file_name': analysis_info['file_name'],
                         'params': analysis_info['params'],
+                        'processor': Processor({
+                            'channels': channels,
+                            'params': analysis_info['params']
+                        }),
                         'channels': channels
                     }
-                    
-                    # СОЗДАЕМ НОВЫЙ ПРОЦЕССОР ДЛЯ ЭТИХ ДАННЫХ
-                    isolated_analysis_data['processor'] = Processor(isolated_analysis_data)
-                    
-                    # Сохраняем данные анализа с НОВЫМ индексом
-                    self.subjects_data[subject_code]['analyses'][new_analysis_index] = isolated_analysis_data
-                    
-                    logger.debug(f"Загружен анализ {analysis_info['file_name']}. Каналы: {list(channels.keys())}")
                     
                     loaded_data.append({
                         'subject_code': subject_code,
@@ -384,7 +412,18 @@ class DataManager:
         """Получение данных анализа"""
         if (subject_code in self.subjects_data and 
             analysis_index in self.subjects_data[subject_code]['analyses']):
-            return self.subjects_data[subject_code]['analyses'][analysis_index]
+            
+            analysis_data = self.subjects_data[subject_code]['analyses'][analysis_index]
+            
+            # ЛОГИРУЕМ ДАННЫЕ ПРИ ЗАПРОСЕ
+            logger.debug(f"=== ДАННЫЕ АНАЛИЗА ПРИ ЗАПРОСЕ: {subject_code}, {analysis_index} ===")
+            for channel_name, channel in analysis_data['channels'].items():
+                if hasattr(channel, 'data'):
+                    logger.debug(f"Канал {channel_name}: shape={channel.data.shape}, empty={channel.data.empty}")
+                else:
+                    logger.warning(f"Канал {channel_name}: нет атрибута data")
+            
+            return analysis_data
         return None
     
     def update_analysis_params(self, subject_code, analysis_index, params):
@@ -402,10 +441,6 @@ class DataManager:
             logger.warning(f"Данные анализа не найдены: {old_subject}, {analysis_index}")
             return False
         
-        # СОЗДАЕМ ГЛУБОКУЮ КОПИЮ ДАННЫХ АНАЛИЗА
-        import copy
-        new_analysis_data = copy.deepcopy(analysis_data)
-        
         # Удаляем из старого предмета
         if old_subject in self.subjects_data and analysis_index in self.subjects_data[old_subject]['analyses']:
             del self.subjects_data[old_subject]['analyses'][analysis_index]
@@ -414,8 +449,8 @@ class DataManager:
         # Добавляем в новый предмет
         self.initialize_subject(new_subject)
         
-        # СОЗДАЕМ НОВЫЙ ПРОЦЕССОР ДЛЯ ПЕРЕМЕЩЕННЫХ ДАННЫХ
-        new_analysis_data['processor'] = Processor(new_analysis_data)
+        # Создаем копию данных анализа
+        new_analysis_data = analysis_data.copy()
         
         self.subjects_data[new_subject]['analyses'][analysis_index] = new_analysis_data
         logger.debug(f"Добавлено в новый предмет: {new_subject}")

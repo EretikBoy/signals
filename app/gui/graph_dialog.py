@@ -53,6 +53,7 @@ class GraphDialog(QDialog):
         self.setGeometry(200, 200, 1200, 800)
         
         self.init_ui()
+        self.processor.update_params(self.params)
         self.update_plots()
     
     def init_ui(self):
@@ -203,7 +204,6 @@ class GraphDialog(QDialog):
         self.ax1.clear()
         self.ax2.clear()
         self.ax3.clear()
-        
         # Получаем данные из процессора
         raw_data = self.processor.rawplot
         smoothed_data = self.processor.smoothedplot

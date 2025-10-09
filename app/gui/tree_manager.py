@@ -33,10 +33,11 @@ class TreeManager(QObject):
         
         # Данные для хранения связи между элементами дерева и данными
         self.subject_items = {}  # subject_code -> SubjectItem
-        self.next_analysis_index = 0
         
         # Подключаем сигнал перемещения
         self.tree.analysis_moved.connect(self.handle_analysis_moved)
+        
+        logger.debug("TreeManager инициализирован")
     
     def setup_tree(self):
         """Настройка древовидной таблицы"""
@@ -68,7 +69,7 @@ class TreeManager(QObject):
             
             analysis_item = old_subject_item.get_analysis(analysis_index)
             if analysis_item:
-                # Перемещаем анализ - ИСПРАВЛЕНИЕ: используем new_subject вместо new_subject_code
+                # Перемещаем анализ
                 moved_item = old_subject_item.move_analysis_to(analysis_item, new_subject)
                 new_subject_item.analyses[analysis_index] = moved_item
                 new_subject_item.addChild(moved_item)
@@ -81,6 +82,7 @@ class TreeManager(QObject):
                 
                 # Испускаем сигнал для обновления DataManager
                 self.analysis_moved.emit(old_subject, new_subject, analysis_index)
+                logger.debug(f"Перемещение завершено успешно")
             else:
                 logger.warning(f"Не найден анализ для перемещения: {old_subject}, {analysis_index}")
         else:
@@ -122,8 +124,6 @@ class TreeManager(QObject):
     
     def add_subject(self, subject_code=None):
         """Добавление нового предмета"""
-        logger.debug(f"Добавление предмета: {subject_code}")
-        
         if subject_code is None:
             subject_code = f"AN{len(self.subject_items) + 1}"
         
@@ -139,67 +139,75 @@ class TreeManager(QObject):
         # Сохраняем ссылку
         self.subject_items[subject_code] = subject_item
         
+        logger.debug(f"Предмет добавлен: {subject_code}. Всего предметов: {len(self.subject_items)}")
+        
         self.subject_added.emit(subject_code)
-        logger.debug(f"Предмет добавлен: {subject_code}")
         return subject_code
     
-    def add_analysis_to_subject(self, subject_code, file_data):
+    def add_analysis_to_subject(self, subject_code, file_data, analysis_index=None):
         """Добавление анализа к предмету"""
-        logger.debug(f"Добавление анализа к предмету: {subject_code}")
+        logger.debug(f"Добавление анализа к предмету: {subject_code}, индекс: {analysis_index}")
         
         if subject_code not in self.subject_items:
+            logger.error(f"Предмет {subject_code} не найден")
             QMessageBox.warning(None, 'Ошибка', f'Предмет {subject_code} не найден')
             return None
         
         subject_item = self.subject_items[subject_code]
-        analysis_index = self.next_analysis_index
-        self.next_analysis_index += 1
-        
-        logger.debug(f"Создание анализа с индексом: {analysis_index}")
         
         # Добавляем анализ через SubjectItem
-        analysis_item = subject_item.add_analysis(analysis_index, file_data)
+        analysis_item, actual_index = subject_item.add_analysis(file_data, analysis_index)
         
         # Устанавливаем виджеты в дереве
         self.tree.setItemWidget(analysis_item, 0, analysis_item.checkbox_widget)
         
         # Настраиваем кнопку графиков
         analysis_item.graph_button.clicked.connect(
-            lambda: self.item_selected.emit(subject_code, analysis_index)
+            lambda: self.item_selected.emit(subject_code, actual_index)
         )
         self.set_button_style(analysis_item.graph_button, 'normal')
         self.tree.setItemWidget(analysis_item, 3, analysis_item.graph_button)
         
-        self.analysis_added.emit(subject_code, analysis_index)
-        logger.debug(f"Анализ добавлен: {subject_code}, {analysis_index}")
+        logger.debug(f"Анализ добавлен: {subject_code}, индекс: {actual_index}")
         
-        return analysis_index
+        self.analysis_added.emit(subject_code, actual_index)
+        return actual_index
     
     def load_files_to_subject(self, subject_code, file_paths):
         """Загрузка файлов в указанный предмет"""
-        logger.debug(f"Загрузка файлов в предмет: {subject_code}")
+        logger.debug(f"Загрузка {len(file_paths)} файлов в предмет: {subject_code}")
         
         if subject_code not in self.subject_items:
+            logger.error(f"Предмет {subject_code} не найден")
             QMessageBox.warning(None, 'Ошибка', f'Предмет {subject_code} не найден')
             return
         
         for file_path in file_paths:
+            logger.debug(f"Загрузка файла: {file_path}")
             self.file_loaded.emit(subject_code, file_path)
     
     def get_selected_subject(self):
         """Получение выбранного предмета"""
         current_item = self.tree.currentItem()
         if isinstance(current_item, SubjectItem):
-            return current_item.subject_code
+            subject_code = current_item.subject_code
+            logger.debug(f"Выбран предмет: {subject_code}")
+            return subject_code
         elif isinstance(current_item, AnalysisItem):
-            return current_item.subject_code
+            subject_code = current_item.subject_code
+            logger.debug(f"Выбран анализ в предмете: {subject_code}")
+            return subject_code
+        logger.debug("Ничего не выбрано")
         return None
     
     def get_selected_analysis_index(self):
         """Получение индекса выбранного анализа"""
         current_item = self.tree.currentItem()
         if isinstance(current_item, AnalysisItem):
-            return current_item.analysis_index
+            analysis_index = current_item.analysis_index
+            logger.debug(f"Выбран анализ с индексом: {analysis_index}")
+            return analysis_index
+        logger.debug("Анализ не выбран")
         return -1
     
     def get_analysis_checkbox_state(self, subject_code, analysis_index):
@@ -208,17 +216,25 @@ class TreeManager(QObject):
             subject_item = self.subject_items[subject_code]
             analysis_item = subject_item.get_analysis(analysis_index)
             if analysis_item:
-                return analysis_item.get_checkbox_state()
+                state = analysis_item.get_checkbox_state()
+                logger.debug(f"Состояние чекбокса {subject_code}, {analysis_index}: {state}")
+                return state
+        logger.warning(f"Анализ не найден: {subject_code}, {analysis_index}")
         return False
     
     def get_all_subjects(self):
         """Получение списка всех предметов"""
-        return list(self.subject_items.keys())
+        subjects = list(self.subject_items.keys())
+        logger.debug(f"Всего предметов: {len(subjects)}")
+        return subjects
     
     def get_subject_analyses(self, subject_code):
         """Получение списка анализов предмета"""
         if subject_code in self.subject_items:
-            return self.subject_items[subject_code].get_all_analyses()
+            analyses = self.subject_items[subject_code].get_all_analyses()
+            logger.debug(f"Предмет {subject_code} имеет {len(analyses)} анализов")
+            return analyses
+        logger.warning(f"Предмет {subject_code} не найден")
         return []
     
     def get_selected_analyses(self):
@@ -228,6 +244,8 @@ class TreeManager(QObject):
             selected_analyses = subject_item.get_selected_analyses()
             for analysis_index in selected_analyses:
                 selected.append((subject_code, analysis_index))
+        
+        logger.debug(f"Выбрано анализов: {len(selected)}")
         return selected
     
     def update_analysis_display(self, subject_code, analysis_index, success, file_name, message=None):
@@ -243,17 +261,27 @@ class TreeManager(QObject):
             if analysis_item and analysis_item.graph_button:
                 if success:
                     self.set_button_style(analysis_item.graph_button, 'success')
+                    logger.debug(f"Отображение обновлено успешно для {subject_code}, {analysis_index}")
                 else:
                     if message and 'вручную' in message:
                         self.set_button_style(analysis_item.graph_button, 'warning')
+                        logger.debug(f"Отображение обновлено с предупреждением для {subject_code}, {analysis_index}")
                     else:
                         self.set_button_style(analysis_item.graph_button, 'error')
+                        logger.debug(f"Отображение обновлено с ошибкой для {subject_code}, {analysis_index}")
+        else:
+            logger.error(f"Предмет {subject_code} не найден при обновлении отображения")
     
     def update_analysis_params(self, subject_code, analysis_index, params):
         """Обновление параметров анализа"""
+        logger.debug(f"Обновление параметров анализа: {subject_code}, {analysis_index}")
+        
         if subject_code in self.subject_items:
             subject_item = self.subject_items[subject_code]
             subject_item.update_analysis_params(analysis_index, params)
+            logger.debug(f"Параметры обновлены для {subject_code}, {analysis_index}")
+        else:
+            logger.error(f"Предмет {subject_code} не найден при обновлении параметров")
     
     def show_context_menu(self, position):
         """Показать контекстное меню"""
@@ -316,6 +344,7 @@ class TreeManager(QObject):
                 index = self.tree.indexOfTopLevelItem(subject_item)
                 if index >= 0:
                     self.tree.takeTopLevelItem(index)
+                logger.debug(f"Предмет {subject_code} удален")
     
     def delete_current_analysis(self):
         """Удаление текущего выбранного анализа"""
@@ -334,7 +363,7 @@ class TreeManager(QObject):
         """Очистка всего дерева"""
         self.tree.clear()
         self.subject_items.clear()
-        self.next_analysis_index = 0
+        logger.debug("Дерево очищено")
     
     def set_button_style(self, button, style_type='normal'):
         """Установка стиля для кнопки"""
