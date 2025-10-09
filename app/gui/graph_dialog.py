@@ -2,7 +2,7 @@
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
     QLabel, QSpinBox, QDoubleSpinBox, QGroupBox, QGridLayout,
-    QComboBox, QTextEdit
+    QComboBox, QTextEdit, QSizePolicy
 )
 
 from PyQt6.QtCore import Qt, QPoint
@@ -49,12 +49,16 @@ class GraphDialog(QDialog):
         self.params = params
         self.processor = processor
         self.selected_channel = 'CH2'  # По умолчанию выбираем CH2
+        self.signal_start_channel = 'CH1'  # По умолчанию для определения начала сигнала
         self.setWindowTitle(f'Графики и настройка параметров - {file_name}')
         self.setGeometry(200, 200, 1200, 800)
         
         self.init_ui()
         self.processor.update_params(self.params)
+        # Устанавливаем начальный канал для определения начала сигнала
+        self.processor.set_signal_start_channel(self.signal_start_channel)
         self.update_plots()
+        self.update_frequency_forecast()  # Добавляем начальный расчет прогноза
     
     def init_ui(self):
         '''Инициализация пользовательского интерфейса'''
@@ -66,7 +70,16 @@ class GraphDialog(QDialog):
         
         row = 0
         
-        # Выбор канала для анализа
+        # ВЫБОР КАНАЛА ДЛЯ ОПРЕДЕЛЕНИЯ НАЧАЛА СИГНАЛА - ПЕРВЫЙ
+        settings_layout.addWidget(QLabel('Канал для определения начала сигнала:'), row, 0)
+        self.signal_start_channel_combo = QComboBox()
+        self.signal_start_channel_combo.addItems(list(self.channels.keys()))
+        self.signal_start_channel_combo.setCurrentText(self.signal_start_channel)
+        self.signal_start_channel_combo.currentTextChanged.connect(self.signal_start_channel_changed)
+        settings_layout.addWidget(self.signal_start_channel_combo, row, 1)
+        row += 1
+        
+        # Выбор канала для анализа - ВТОРОЙ
         settings_layout.addWidget(QLabel('Канал для анализа:'), row, 0)
         self.channel_combo = QComboBox()
         self.channel_combo.addItems(list(self.channels.keys()))
@@ -161,28 +174,76 @@ class GraphDialog(QDialog):
         self.figure.tight_layout(pad=1.0)
         plots_layout.addWidget(self.canvas)
         
-        # Добавим отображение параметров канала
+        # ПРАВАЯ ПАНЕЛЬ - Параметры канала и прогноз
+        right_panel = QVBoxLayout()
+        
+        # Параметры канала
+        params_group = QGroupBox('Параметры канала')
+        params_layout = QVBoxLayout(params_group)
         self.params_display = QTextEdit()
         self.params_display.setReadOnly(True)
-        self.params_display.setMaximumHeight(200)
-
+        # Убираем фиксированную высоту, чтобы текст мог занимать столько места, сколько нужно
+        self.params_display.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        params_layout.addWidget(self.params_display)
+        
+        # Прогноз полосы частот для проверки
+        forecast_group = QGroupBox('Прогноз полосы частот для проверки')
+        forecast_layout = QVBoxLayout(forecast_group)
+        
+        # Критерий достаточности
+        criterion_layout = QHBoxLayout()
+        criterion_layout.addWidget(QLabel('Критерий достаточности (Гц/с):'))
+        self.sufficient_criterion_spin = QDoubleSpinBox()
+        self.sufficient_criterion_spin.setRange(0.1, 10.0)
+        self.sufficient_criterion_spin.setSingleStep(0.1)
+        self.sufficient_criterion_spin.setValue(1.0)
+        self.sufficient_criterion_spin.valueChanged.connect(self.update_frequency_forecast)
+        criterion_layout.addWidget(self.sufficient_criterion_spin)
+        forecast_layout.addLayout(criterion_layout)
+        
+        # Отображение прогноза
+        self.forecast_display = QTextEdit()
+        self.forecast_display.setReadOnly(True)
+        self.forecast_display.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        forecast_layout.addWidget(self.forecast_display)
+        
+        right_panel.addWidget(params_group)
+        right_panel.addWidget(forecast_group)
+        right_panel.addStretch(1)
+        
         # Добавляем объекты в основной layout
         layout.addWidget(settings_group, 1)
         layout.addWidget(plots_widget, 3)
-        layout.addWidget(self.params_display, 1)
+        layout.addLayout(right_panel, 1)
     
     def channel_changed(self, channel_name):
         """Обработчик изменения выбранного канала"""
         self.selected_channel = channel_name
         self.update_plots()
+        self.update_frequency_forecast()
+    
+    def signal_start_channel_changed(self, channel_name):
+        """Обработчик изменения канала для определения начала сигнала"""
+        self.signal_start_channel = channel_name
+        self.processor.set_signal_start_channel(channel_name)
+        self.update_plots()
+        self.update_frequency_forecast()  # Добавляем обновление прогноза
     
     def param_changed(self):
         """Обработчик изменения параметров"""
         # При изменении параметров просто обновляем графики без применения к процессору
         self.update_plots()
+        self.update_frequency_forecast()
     
     def apply_values(self):
         '''Применение выбранных значений параметров'''
+        # Сначала обновляем каналы на случай, если они были изменены
+        self.signal_start_channel = self.signal_start_channel_combo.currentText()
+        self.selected_channel = self.channel_combo.currentText()
+        
+        # Устанавливаем канал для определения начала сигнала
+        self.processor.set_signal_start_channel(self.signal_start_channel)
+        
         new_params = {
             'start_freq': self.start_freq_spin.value(),
             'end_freq': self.end_freq_spin.value(),
@@ -197,6 +258,26 @@ class GraphDialog(QDialog):
         
         # Обновляем графики
         self.update_plots()
+        self.update_frequency_forecast()
+    
+    def update_frequency_forecast(self):
+        """Обновление прогноза полосы частот для проверки"""
+        sufficient_criterion = self.sufficient_criterion_spin.value()
+        forecast = self.processor.calculate_frequency_forecast(
+            self.selected_channel, 
+            sufficient_criterion
+        )
+        
+        if forecast:
+            lower_bound, upper_bound = forecast
+            forecast_text = f"Прогноз полосы частот для проверки:\n"
+            forecast_text += f"Нижняя граница: {lower_bound:.2f} Гц\n"
+            forecast_text += f"Верхняя граница: {upper_bound:.2f} Гц\n"
+            forecast_text += f"Центральная частота: {(lower_bound + upper_bound) / 2:.2f} Гц"
+        else:
+            forecast_text = "Прогноз не рассчитан. Убедитесь, что выбранный канал существует и параметры корректны."
+        
+        self.forecast_display.setPlainText(forecast_text)
     
     def update_plots(self):
         '''Обновление графиков с текущими параметрами'''
@@ -204,6 +285,7 @@ class GraphDialog(QDialog):
         self.ax1.clear()
         self.ax2.clear()
         self.ax3.clear()
+        
         # Получаем данные из процессора
         raw_data = self.processor.rawplot
         smoothed_data = self.processor.smoothedplot
@@ -260,23 +342,23 @@ class GraphDialog(QDialog):
                 self.ax3.axhline(y=fixedlevel, color='orange', linestyle='--', 
                                 label=f'Уровень {fixedlevel}')
         
-        # Настраиваем графики
+        # Настраиваем графики с улучшенными легендами
         self.ax1.set_title("Исходные сигналы")
         self.ax1.set_xlabel("Время (с)")
         self.ax1.set_ylabel("Амплитуда (В)")
-        self.ax1.legend()
+        self.ax1.legend(loc='upper right', fontsize='small')
         self.ax1.grid(True)
         
         self.ax2.set_title("Сглаженные сигналы")
         self.ax2.set_xlabel("Время (с)")
         self.ax2.set_ylabel("Амплитуда (В)")
-        self.ax2.legend()
+        self.ax2.legend(loc='upper right', fontsize='small')
         self.ax2.grid(True)
         
         self.ax3.set_title("АЧХ (линейная шкала с усилением)")
         self.ax3.set_xlabel("Частота (Гц)")
         self.ax3.set_ylabel("Амплитуда сигнала")
-        self.ax3.legend()
+        self.ax3.legend(loc='upper right', fontsize='small')
         self.ax3.grid(True)
         
         # Обновляем отображение параметров

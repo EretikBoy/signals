@@ -129,7 +129,7 @@ class GWInstekProvider:
                 raise ValueError(f"Invalid channel number: {ch}")
                 
             if not self.is_channel_on(ch):
-                logger.warning(f"Channel {ch} is disabled")
+                logger.info(f"Channel {ch} is disabled")
                 return None
             
             # Устанавливаем заголовок ответа

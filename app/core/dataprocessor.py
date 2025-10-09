@@ -7,12 +7,15 @@ logger = logging.getLogger(__name__)
 
 class Processor:
     '''
+    Description
+    ----------
     Класс отвечает за удобное хранение данных и их обработку, позволяет модулям программы передавая процессор
     прокидывать необходимые данные через один объект без необходимости копий, процессор также отвечает за реализацию
     универсальных алгоритмов обработки любого объекта класса Channel, для последующего удобного вызова необходимого для 
     расчётов параметров основной идеей является возможность определить стандартный набор функций, но также возможность
     реализации собственных алгоритмов без необходимости самостоятельно искать часто используемые параметры, такие как 
     максимум, среднее, индекс, минимальное и многое другое по мере необходимости
+
     Parameters
     ----------
     data : Dict
@@ -53,6 +56,7 @@ class Processor:
         self.params = data['params']
         self._cache = {}
         self._precomputed = {}  # Для данных, не зависящих от параметров
+        self.signal_start_channel = 'CH2'  # По умолчанию для определения начала сигнала
         self._update_derived_params()
         
     def update_params(self, new_params: Dict[str, Any]):
@@ -65,6 +69,18 @@ class Processor:
         for key in keys_to_clear:
             if key in self._cache:
                 del self._cache[key]
+    
+    def set_signal_start_channel(self, channel_name: str):
+        """Установка канала для определения начала сигнала"""
+        if channel_name in self.channels:
+            self.signal_start_channel = channel_name
+            # Сбрасываем кэш, зависящий от начала сигнала
+            if 'cropped_data' in self._cache:
+                del self._cache['cropped_data']
+            if 'freq_response' in self._cache:
+                del self._cache['freq_response']
+            if 'channel_parameters' in self._cache:
+                del self._cache['channel_parameters']
         
     def _update_derived_params(self):
         """Вычисление производных параметров"""
@@ -158,21 +174,25 @@ class Processor:
             logger.error("Нет smoothed_data для определения начала сигнала")
             return 0
         
-        first_channel_name = list(smoothed_data.keys())[0]
-        first_channel = smoothed_data[first_channel_name]
-        total_points = len(first_channel)
+        # Используем выбранный канал для определения начала сигнала
+        if self.signal_start_channel not in smoothed_data:
+            logger.error(f"Канал {self.signal_start_channel} не найден в smoothed_data")
+            return 0
+            
+        signal_channel = smoothed_data[self.signal_start_channel]
+        total_points = len(signal_channel)
         
         # Находим индекс максимального значения
-        max_idx = first_channel['Амплитуда'].idxmax()
-        max_amp = first_channel['Амплитуда'].max()
+        max_idx = signal_channel['Амплитуда'].idxmax()
+        max_amp = signal_channel['Амплитуда'].max()
         logger.debug(f"Максимальная амплитуда: {max_amp} на индексе {max_idx}")
         
         # Применяем смещение cut_second с защитой от выхода за границы
-        if len(first_channel) < 2:
+        if len(signal_channel) < 2:
             logger.error("Недостаточно данных для вычисления time_step")
             return 0
             
-        time_step = first_channel['Время'].iloc[1] - first_channel['Время'].iloc[0]
+        time_step = signal_channel['Время'].iloc[1] - signal_channel['Время'].iloc[0]
         offset_points = int(self.cut_second / time_step) if time_step > 0 else 0
         
         # ЗАЩИТА: не позволяем signal_start выйти за границы массива
@@ -204,22 +224,26 @@ class Processor:
             logger.error("Нет smoothed_data для вычисления индексов")
             return 0, 0
         
-        first_channel_name = list(smoothed_data.keys())[0]
-        first_channel = smoothed_data[first_channel_name]
-        total_points = len(first_channel)
+        # Используем выбранный канал для определения начала сигнала
+        if self.signal_start_channel not in smoothed_data:
+            logger.error(f"Канал {self.signal_start_channel} не найден в smoothed_data")
+            return 0, 0
+            
+        signal_channel = smoothed_data[self.signal_start_channel]
+        total_points = len(signal_channel)
         
-        logger.debug(f"Используем канал: {first_channel_name}")
-        logger.debug(f"Данные канала shape: {first_channel.shape}")
+        logger.debug(f"Используем канал: {self.signal_start_channel}")
+        logger.debug(f"Данные канала shape: {signal_channel.shape}")
         
         # Вычисление signal_start с защитой
         signal_start = self._get_signal_start_index()
         
         # Вычисление time_step
-        if len(first_channel) < 2:
+        if len(signal_channel) < 2:
             logger.error("Недостаточно данных для вычисления time_step")
             return 0, 0
             
-        time_step = first_channel['Время'].iloc[1] - first_channel['Время'].iloc[0]
+        time_step = signal_channel['Время'].iloc[1] - signal_channel['Время'].iloc[0]
         
         # ВЫЧИСЛЕНИЕ МАКСИМАЛЬНО ВОЗМОЖНОГО points_to_crop
         max_possible_points = total_points - signal_start
@@ -387,6 +411,37 @@ class Processor:
         self._cache['channel_parameters'] = channel_params
         return channel_params
 
+    def calculate_frequency_forecast(self, channel_name: str, sufficient_criterion: float = 1.0):
+        """
+        Рассчитывает прогноз полосы частот для проверки.
+        
+        Формула:
+        нижняя_граница = резонансная_частота - ((критерий_достаточности * время_записи) / 2)
+        верхняя_граница = резонансная_частота + ((критерий_достаточности * время_записи) / 2)
+        
+        Parameters:
+        -----------
+        channel_name : str
+            Имя канала для расчета
+        sufficient_criterion : float
+            Критерий достаточности в Гц/с (по умолчанию 1.0)
+            
+        Returns:
+        --------
+        tuple: (нижняя_граница, верхняя_граница) или None если данные недоступны
+        """
+        if channel_name not in self.channel_parameters:
+            return None
+            
+        params = self.channel_parameters[channel_name]
+        resonance_freq = params['resonance_frequency']
+        record_time = self.record_time
+        
+        lower_bound = resonance_freq - ((sufficient_criterion * record_time) / 2)
+        upper_bound = resonance_freq + ((sufficient_criterion * record_time) / 2)
+        
+        return (lower_bound, upper_bound)
+
     @property
     def raw_data(self):
         """Исходные данные"""
@@ -428,8 +483,6 @@ class Processor:
                 'smoothed_amplitude': data['Smoothed'].values
             } for name, data in cropped_data.items()
         }
-    
-
 
     @property
     def freqresponse_linear(self):
@@ -453,7 +506,6 @@ class Processor:
         cropped_data = self._get_cropped_data()
         first_channel = list(cropped_data.values())[0]
         return first_channel['Время'].iloc[0]
-    
 
     @property
     def raw_max_amp(self):

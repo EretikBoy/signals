@@ -253,6 +253,9 @@ class MainWindow(QMainWindow):
         """Обработка остановки измерения"""
         if self.worker_manager.stop_measurement():
             self.on_log_message("Запрос на остановку измерения...")
+        # Сразу разблокируем интерфейс
+        self.instrument_manager.set_measurement_state(False)
+        self.instrument_manager.update_progress(0)
     
     def on_measurement_finished(self, channels_data):
         """Обработка завершения измерения"""

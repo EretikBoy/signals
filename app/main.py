@@ -2,7 +2,6 @@ import sys
 import os
 
 import logging
-logger = logging.getLogger(__name__)
 from PyQt6.QtWidgets import QApplication
 
 # from modules.gwinstekprovider import GWInstekProvider
@@ -14,8 +13,25 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from gui.window import MainWindow
 
+def setup_logger():
+    """Настройка системы логирования"""
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    
+    # Уменьшаем verbosity для некоторых библиотек
+    logging.getLogger('PyQt6').setLevel(logging.WARNING)
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+    logging.getLogger('pyvisa').setLevel(logging.WARNING)
+
+
 def main():
     """Точка входа в приложение"""
+    setup_logger()
     app = QApplication(sys.argv)
     
     window = MainWindow()
