@@ -1,0 +1,1 @@
+pyinstaller --onefile --windowed --collect-all tm_devices main.py

@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QPushButton, QTreeWidget
 )
 from PyQt6.QtCore import QEvent, Qt
+from gui.summary_dialog import SummaryDialog
 from gui.tree_manager import TreeManager
 from gui.instrument_manager import InstrumentManager
 from gui.worker_manager import WorkerManager
@@ -86,6 +87,12 @@ class MainWindow(QMainWindow):
         tree_button_layout.addWidget(save_all_button)
         tree_button_layout.addWidget(save_selected_button)
         tree_button_layout.addWidget(load_analysis_button)
+
+
+        summary_button = QPushButton('Сводный график АЧХ')
+        summary_button.clicked.connect(self.show_summary_dialog)
+        
+        tree_button_layout.addWidget(summary_button)
         
         main_layout.addLayout(tree_button_layout)
     
@@ -477,3 +484,20 @@ class MainWindow(QMainWindow):
         else:
             self.on_log_message(f"Ошибка при перемещении анализа из {old_subject} в {new_subject}")
             logger.error(f"MainWindow: ошибка перемещения данных анализа")
+
+    def show_summary_dialog(self):
+        """Показать диалог сводного графика АЧХ"""
+        try:
+            # Проверяем, есть ли выбранные анализы
+            selected_analyses = self.tree_manager.get_selected_analyses()
+            if not selected_analyses:
+                QMessageBox.information(self, 'Информация', 
+                                    'Выберите анализы для построения сводного графика (используйте чекбоксы)')
+                return
+            
+            dialog = SummaryDialog(self.data_manager, self.tree_manager, self)
+            dialog.exec()
+            
+        except Exception as e:
+            logger.error(f"Ошибка при открытии диалога сводного графика: {str(e)}")
+            QMessageBox.critical(self, 'Ошибка', f'Не удалось открыть диалог сводного графика: {str(e)}')

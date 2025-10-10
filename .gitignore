@@ -20,3 +20,4 @@ app/dist
 *.csv
 app/logs
 logs
+*.xlsx

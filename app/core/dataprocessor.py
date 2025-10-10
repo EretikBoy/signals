@@ -47,7 +47,7 @@ class Processor:
     --------
     data = Processor({channels:{}, params:{}})
     data.raw_min_amp[channel_name]
-    data.channel_parameters.get(self.selected_channel, {})
+    data.channel_parameters.get(self.params['selected_channel'], {})
     print(f"Максимальная амплитуда: {params['max_amplitude']:.4f} В\n")
 
     '''
@@ -56,7 +56,6 @@ class Processor:
         self.params = data['params']
         self._cache = {}
         self._precomputed = {}  # Для данных, не зависящих от параметров
-        self.signal_start_channel = 'CH2'  # По умолчанию для определения начала сигнала
         self._update_derived_params()
         
     def update_params(self, new_params: Dict[str, Any]):
@@ -73,7 +72,7 @@ class Processor:
     def set_signal_start_channel(self, channel_name: str):
         """Установка канала для определения начала сигнала"""
         if channel_name in self.channels:
-            self.signal_start_channel = channel_name
+            self.params['signal_start_channel'] = channel_name
             # Сбрасываем кэш, зависящий от начала сигнала
             if 'cropped_data' in self._cache:
                 del self._cache['cropped_data']
@@ -175,11 +174,11 @@ class Processor:
             return 0
         
         # Используем выбранный канал для определения начала сигнала
-        if self.signal_start_channel not in smoothed_data:
-            logger.error(f"Канал {self.signal_start_channel} не найден в smoothed_data")
+        if self.params['signal_start_channel'] not in smoothed_data:
+            logger.error(f"Канал {self.params['signal_start_channel']} не найден в smoothed_data")
             return 0
             
-        signal_channel = smoothed_data[self.signal_start_channel]
+        signal_channel = smoothed_data[self.params['signal_start_channel']]
         total_points = len(signal_channel)
         
         # Находим индекс максимального значения
@@ -225,14 +224,14 @@ class Processor:
             return 0, 0
         
         # Используем выбранный канал для определения начала сигнала
-        if self.signal_start_channel not in smoothed_data:
-            logger.error(f"Канал {self.signal_start_channel} не найден в smoothed_data")
+        if self.params['signal_start_channel'] not in smoothed_data:
+            logger.error(f"Канал {self.params['signal_start_channel']} не найден в smoothed_data")
             return 0, 0
             
-        signal_channel = smoothed_data[self.signal_start_channel]
+        signal_channel = smoothed_data[self.params['signal_start_channel']]
         total_points = len(signal_channel)
         
-        logger.debug(f"Используем канал: {self.signal_start_channel}")
+        logger.debug(f"Используем канал: {self.params['signal_start_channel']}")
         logger.debug(f"Данные канала shape: {signal_channel.shape}")
         
         # Вычисление signal_start с защитой

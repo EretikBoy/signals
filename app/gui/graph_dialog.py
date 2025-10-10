@@ -48,15 +48,13 @@ class GraphDialog(QDialog):
         self.channels = channels
         self.params = params
         self.processor = processor
-        self.selected_channel = 'CH2'  # По умолчанию выбираем CH2
-        self.signal_start_channel = 'CH1'  # По умолчанию для определения начала сигнала
+        self.params['selected_channel']  = processor.params.get('selected_channel', 'CH2') # По умолчанию выбираем CH2 
+        self.params['signal_start_channel'] = processor.params.get('signal_start_channel', 'CH1')  # По умолчанию для определения начала сигнала
         self.setWindowTitle(f'Графики и настройка параметров - {file_name}')
         self.setGeometry(200, 200, 1200, 800)
         
         self.init_ui()
-        self.processor.update_params(self.params)
         # Устанавливаем начальный канал для определения начала сигнала
-        self.processor.set_signal_start_channel(self.signal_start_channel)
         self.update_plots()
         self.update_frequency_forecast()  # Добавляем начальный расчет прогноза
     
@@ -74,7 +72,7 @@ class GraphDialog(QDialog):
         settings_layout.addWidget(QLabel('Канал для определения начала сигнала:'), row, 0)
         self.signal_start_channel_combo = QComboBox()
         self.signal_start_channel_combo.addItems(list(self.channels.keys()))
-        self.signal_start_channel_combo.setCurrentText(self.signal_start_channel)
+        self.signal_start_channel_combo.setCurrentText(self.params['signal_start_channel'])
         self.signal_start_channel_combo.currentTextChanged.connect(self.signal_start_channel_changed)
         settings_layout.addWidget(self.signal_start_channel_combo, row, 1)
         row += 1
@@ -83,7 +81,7 @@ class GraphDialog(QDialog):
         settings_layout.addWidget(QLabel('Канал для анализа:'), row, 0)
         self.channel_combo = QComboBox()
         self.channel_combo.addItems(list(self.channels.keys()))
-        self.channel_combo.setCurrentText(self.selected_channel)
+        self.channel_combo.setCurrentText(self.params['selected_channel'])
         self.channel_combo.currentTextChanged.connect(self.channel_changed)
         settings_layout.addWidget(self.channel_combo, row, 1)
         row += 1
@@ -218,13 +216,13 @@ class GraphDialog(QDialog):
     
     def channel_changed(self, channel_name):
         """Обработчик изменения выбранного канала"""
-        self.selected_channel = channel_name
+        self.params['selected_channel'] = channel_name
         self.update_plots()
         self.update_frequency_forecast()
     
     def signal_start_channel_changed(self, channel_name):
         """Обработчик изменения канала для определения начала сигнала"""
-        self.signal_start_channel = channel_name
+        self.params['signal_start_channel'] = channel_name
         self.processor.set_signal_start_channel(channel_name)
         self.update_plots()
         self.update_frequency_forecast()  # Добавляем обновление прогноза
@@ -238,11 +236,11 @@ class GraphDialog(QDialog):
     def apply_values(self):
         '''Применение выбранных значений параметров'''
         # Сначала обновляем каналы на случай, если они были изменены
-        self.signal_start_channel = self.signal_start_channel_combo.currentText()
-        self.selected_channel = self.channel_combo.currentText()
+        self.params['signal_start_channel'] = self.signal_start_channel_combo.currentText()
+        self.params['selected_channel'] = self.channel_combo.currentText()
         
         # Устанавливаем канал для определения начала сигнала
-        self.processor.set_signal_start_channel(self.signal_start_channel)
+        self.processor.set_signal_start_channel(self.params['signal_start_channel'])
         
         new_params = {
             'start_freq': self.start_freq_spin.value(),
@@ -264,7 +262,7 @@ class GraphDialog(QDialog):
         """Обновление прогноза полосы частот для проверки"""
         sufficient_criterion = self.sufficient_criterion_spin.value()
         forecast = self.processor.calculate_frequency_forecast(
-            self.selected_channel, 
+            self.params['selected_channel'], 
             sufficient_criterion
         )
         
@@ -322,12 +320,12 @@ class GraphDialog(QDialog):
                 self.ax2.plot(data['time'], data['smoothed_amplitude'], label=channel_name)
         
         # Строим АЧХ только для выбранного канала (линейная шкала с усилением)
-        if self.selected_channel in freq_response:
-            data = freq_response[self.selected_channel]
-            self.ax3.plot(data['freq'], data['amplitude'], label=self.selected_channel, color='red')
+        if self.params['selected_channel'] in freq_response:
+            data = freq_response[self.params['selected_channel']]
+            self.ax3.plot(data['freq'], data['amplitude'], label=self.params['selected_channel'], color='red')
             
             # Добавляем маркеры для важных точек
-            params = self.processor.channel_parameters.get(self.selected_channel, {})
+            params = self.processor.channel_parameters.get(self.params['selected_channel'], {})
             if params:
                 # Резонансная частота
                 self.ax3.axvline(x=params['resonance_frequency'], color='green', linestyle='--', 
@@ -370,7 +368,7 @@ class GraphDialog(QDialog):
 
     def update_parameters_display(self):
         """Обновление отображения параметров выбранного канала"""
-        params = self.processor.channel_parameters.get(self.selected_channel, {})
+        params = self.processor.channel_parameters.get(self.params['selected_channel'], {})
         if not params:
             self.params_display.setPlainText("Параметры не рассчитаны")
             return
@@ -378,7 +376,7 @@ class GraphDialog(QDialog):
         # Получаем текущие значения параметров из spin-боксов
         fixedlevel = self.fixedlevel_spin.value()
         
-        text = f"Параметры канала {self.selected_channel}:\n\n"
+        text = f"Параметры канала {self.params['selected_channel']}:\n\n"
         text += f"Максимальная амплитуда: {params['max_amplitude']:.4f} В\n"
         text += f"Резонансная частота: {params['resonance_frequency']:.2f} Гц\n"
         text += f"Ширина полосы (0.707): {params['bandwidth_707']:.2f} Гц\n"
