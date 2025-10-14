@@ -3,8 +3,10 @@
 import os
 import shutil
 import pickle
-import pandas as pd
+import psutil
 from datetime import datetime
+
+import pandas as pd
 from PyQt6.QtWidgets import QMessageBox, QFileDialog
 
 from core.parser import DataParser, Channel
@@ -15,6 +17,48 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def get_locked_files(process_name=None):
+    """Получить список заблокированных файлов процессом"""
+    locked_files = []
+    current_pid = os.getpid()
+    
+    for proc in psutil.process_iter(['pid', 'name']):
+        try:
+            # Если указано имя процесса или это текущий процесс
+            if process_name and proc.info['name'] != process_name:
+                continue
+            if not process_name and proc.info['pid'] != current_pid:
+                continue
+                
+            files = proc.open_files()
+            for file in files:
+                locked_files.append({
+                    'pid': proc.info['pid'],
+                    'name': proc.info['name'],
+                    'file': file.path
+                })
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    return locked_files
+
+def log_open_files(context=""):
+    """Логировать открытые файлы текущим процессом"""
+    logger.debug(f"=== ОТКРЫТЫЕ ФАЙЛЫ [{context}] ===")
+    try:
+        current_pid = os.getpid()
+        process = psutil.Process(current_pid)
+        files = process.open_files()
+        
+        for file in files:
+            logger.debug(f"Файл открыт: {file.path} (fd: {file.fd})")
+            
+        if not files:
+            logger.debug("Нет открытых файлов")
+            
+    except Exception as e:
+        logger.error(f"Ошибка при проверке открытых файлов: {e}")
+
 
 class DataManager:
     """Управление данными с поддержкой иерархической структуры предметов и анализов"""
@@ -22,7 +66,29 @@ class DataManager:
     def __init__(self):
         self.subjects_data = {}  # subject_code -> {analyses: {analysis_index: data}, ...}
         self.open_dialogs = {}  # (subject_code, analysis_index) -> dialog
-    
+        self._locked_files_logged = set()
+
+    def _diagnose_file_locking(self, file_path, operation=""):
+        """Диагностика блокировки файла"""
+        logger.debug(f"=== ДИАГНОСТИКА БЛОКИРОВКИ ФАЙЛА [{operation}] ===")
+        logger.debug(f"Целевой файл: {file_path}")
+        
+        # Проверяем открытые файлы текущим процессом
+        log_open_files(f"before {operation}")
+        
+        # Проверяем, заблокирован ли конкретный файл
+        try:
+            with open(file_path, 'a') as test_file:
+                logger.debug(f"Файл {file_path} доступен для записи")
+        except PermissionError as e:
+            logger.error(f"Файл {file_path} заблокирован: {e}")
+            
+            # Находим, кто блокирует файл
+            all_locked = get_locked_files()
+            for locked in all_locked:
+                if file_path in locked['file']:
+                    logger.error(f"Файл заблокирован процессом: PID={locked['pid']}, Name={locked['name']}, File={locked['file']}")
+
     def initialize_subject(self, subject_code):
         """Инициализация предмета"""
         if subject_code not in self.subjects_data:
@@ -109,17 +175,19 @@ class DataManager:
             'gain': DEFAULT_PARAMS['gain']
         }
     
-    def generate_standard_filename(self, subject_code, params):
+    def generate_standard_filename(self, subject_code, params, tree_manager=None):
         """Генерация стандартизированного имени файла"""
         try:
             start_freq = int(params.get('start_freq', DEFAULT_PARAMS['start_freq']))
             end_freq = int(params.get('end_freq', DEFAULT_PARAMS['end_freq']))
             bandwidth = end_freq - start_freq
             record_time = int(params.get('record_time', DEFAULT_PARAMS['record_time']))
-            
-            return f"{subject_code}_{start_freq}_{bandwidth}_{record_time}.csv"
+            if tree_manager:
+                return f"{tree_manager.get_subject_name(subject_code)}_{start_freq}_{bandwidth}_{record_time}.csv"
+            else:
+                return f"{subject_code}_{start_freq}_{bandwidth}_{record_time}.csv"
         except (ValueError, TypeError):
-            return f"{subject_code}_{DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['end_freq'] - DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['record_time']}.csv"
+            return f"{tree_manager.get_subject_name(subject_code)}_{DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['end_freq'] - DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['record_time']}.csv"
     
     def save_measurement_data(self, channels_data, params, subject_code=None):
         try:
@@ -195,7 +263,8 @@ class DataManager:
             
             # СОХРАНЯЕМ В CSV
             try:
-                all_data.to_csv(file_path, index=False)
+                with open(file_path, 'w', encoding='utf-8', newline='') as f:
+                    all_data.to_csv(f, index=False)
                 logger.info(f"Данные сохранены в {file_path}, форма: {all_data.shape}")
             except Exception as e:
                 logger.error(f"Ошибка сохранения CSV: {str(e)}")
@@ -234,32 +303,53 @@ class DataManager:
         
         return max(analyses.keys()) + 1
     
-    def save_analysis(self, tree_manager, save_selected_only=False, parent=None):
-        """Сохранение анализа"""
+    def save_analysis(self, tree_manager, save_selected_only=False, parent=None, auto_save=False):
+        """Сохранение анализа
+        
+        Args:
+            tree_manager: менеджер дерева
+            save_selected_only: сохранять только выбранные анализы
+            parent: родительское окно для диалогов
+            auto_save: режим автосохранения (без диалогов)
+        """
         if not self.subjects_data:
-            QMessageBox.warning(parent, 'Предупреждение', 'Нет данных для сохранения')
+            if not auto_save:  # Не показываем предупреждение при автосохранении
+                QMessageBox.warning(parent, 'Предупреждение', 'Нет данных для сохранения')
             return False
         
-        os.makedirs(TABLES_DIR, exist_ok=True)
+        if auto_save:
+            # Режим автосохранения
+            backup_dir = os.path.join(os.path.dirname(__file__), '..', 'emergency_backups')
+            os.makedirs(backup_dir, exist_ok=True)
+            
+            # Используем фиксированное имя для автосохранения
+            file_name = os.path.join(backup_dir, 'autosave.analysis')
+            folder_name = os.path.join(backup_dir, 'autosave')
+        else:
+            # Обычный режим сохранения
+            os.makedirs(TABLES_DIR, exist_ok=True)
+            
+            file_name, _ = QFileDialog.getSaveFileName(
+                parent, 
+                'Сохранить анализ', 
+                f'{TABLES_DIR}/analysis.analysis', 
+                f'Analysis Files ({ANALYSIS_EXTENSION})'
+            )
+            
+            if not file_name:
+                return False
+            
+            base_name = os.path.splitext(os.path.basename(file_name))[0]
+            folder_name = os.path.join(os.path.dirname(file_name), base_name)
         
-        file_name, _ = QFileDialog.getSaveFileName(
-            parent, 
-            'Сохранить анализ', 
-            f'{TABLES_DIR}/analysis.analysis', 
-            f'Analysis Files ({ANALYSIS_EXTENSION})'
-        )
-        
-        if not file_name:
-            return False
-        
-        base_name = os.path.splitext(os.path.basename(file_name))[0]
-        folder_name = os.path.join(os.path.dirname(file_name), base_name)
         os.makedirs(folder_name, exist_ok=True)
         
         try:
             analysis_data = {
                 'subjects': {},
-                'files': {}
+                'files': {},
+                'timestamp': datetime.now().isoformat(),
+                'auto_save': auto_save
             }
             
             # Определяем, какие анализы сохранять
@@ -282,7 +372,8 @@ class DataManager:
                 subject_data = self.subjects_data[subject_code]
                 analysis_data['subjects'][subject_code] = {
                     'analyses': {},
-                    'metadata': subject_data.get('metadata', {})
+                    'metadata': subject_data.get('metadata', {}),
+                    'subject_name': tree_manager.get_subject_name(subject_code)
                 }
                 
                 for analysis_index in analysis_indices:
@@ -292,16 +383,22 @@ class DataManager:
                     analysis = subject_data['analyses'][analysis_index]
                     
                     try:
-                        standard_filename = self.generate_standard_filename(subject_code, analysis['params'])
+                        standard_filename = self.generate_standard_filename(subject_code, analysis['params'], tree_manager)
                         src_file = analysis['path']
                         dst_file = os.path.join(folder_name, standard_filename)
                         
-                        shutil.copy2(src_file, dst_file)
+                        if src_file not in self._locked_files_logged:
+                            self._diagnose_file_locking(src_file, f"copy for {subject_code}/{analysis_index}")
+                            self._locked_files_logged.add(src_file)
+                    
+                        # Пробуем скопировать с диагностикой
+                        if not self._safe_copy_with_diagnosis(src_file, dst_file, subject_code, analysis_index):
+                            logger.warning(f"Не удалось скопировать {src_file}")
+                        
                         analysis['file_name'] = standard_filename
                         
                     except Exception as e:
-                        QMessageBox.warning(parent, 'Предупреждение', 
-                                           f'Ошибка копирования файла {analysis["file_name"]}: {str(e)}')
+                        logger.error(f"Критическая ошибка при копировании {analysis['file_name']}: {str(e)}")
                     
                     # ВАЖНО: НЕ сохраняем processor в файл анализа
                     analysis_info = {
@@ -324,11 +421,18 @@ class DataManager:
             with open(file_name, 'wb') as f:
                 pickle.dump(analysis_data, f)
             
-            QMessageBox.information(parent, 'Успех', 'Анализ успешно сохранен')
+            if not auto_save:  # Сообщаем только при ручном сохранении
+                QMessageBox.information(parent, 'Успех', 'Анализ успешно сохранен')
+            else:
+                logger.info(f"Автосохранение выполнено: {file_name}")
+            
             return True
             
         except Exception as e:
-            QMessageBox.critical(parent, 'Ошибка', f'Ошибка при сохранении анализа: {str(e)}')
+            if not auto_save:  # Показываем ошибки только при ручном сохранении
+                QMessageBox.critical(parent, 'Ошибка', f'Ошибка при сохранении анализа: {str(e)}')
+            else:
+                logger.error(f"Ошибка при автосохранении: {str(e)}")
             return False
     
     def load_analysis(self, parent):
@@ -395,6 +499,7 @@ class DataManager:
                     
                     loaded_data.append({
                         'subject_code': subject_code,
+                        'subject_name': subject_info['subject_name'],
                         'analysis_index': new_analysis_index,
                         'analysis_info': analysis_info,
                         'file_path': file_path,
@@ -466,3 +571,66 @@ class DataManager:
         key = (subject_code, analysis_index)
         if key in self.open_dialogs:
             del self.open_dialogs[key]
+
+
+    def _safe_copy_with_diagnosis(self, src, dst, subject_code, analysis_index):
+        """Безопасное копирование с расширенной диагностикой"""
+        import time
+        
+        for attempt in range(3):
+            try:
+                # Используем низкоуровневое копирование с контролем
+                with open(src, 'rb') as source_file:
+                    # Логируем дескриптор файла
+                    logger.debug(f"Открыт исходный файл: {src}, fd: {source_file.fileno()}")
+                    
+                    with open(dst, 'wb') as dest_file:
+                        logger.debug(f"Открыт целевой файл: {dst}, fd: {dest_file.fileno()}")
+                        shutil.copyfileobj(source_file, dest_file)
+                
+                logger.debug(f"Успешно скопирован: {src} -> {dst}")
+                return True
+                
+            except PermissionError as e:
+                logger.error(f"Попытка {attempt + 1}: Файл заблокирован - {e}")
+                
+                # Детальная диагностика при ошибке
+                self._detailed_file_diagnosis(src, f"copy_attempt_{attempt + 1}")
+                
+                if attempt < 2:
+                    time.sleep(0.5)
+                    continue
+                else:
+                    return False
+                    
+            except Exception as e:
+                logger.error(f"Неожиданная ошибка при копировании: {e}")
+                return False
+    
+    def _detailed_file_diagnosis(self, file_path, context):
+        """Детальная диагностика файла"""
+        logger.error(f"=== ДЕТАЛЬНАЯ ДИАГНОСТИКА ФАЙЛА [{context}] ===")
+        logger.error(f"Файл: {file_path}")
+        logger.error(f"Существует: {os.path.exists(file_path)}")
+        
+        if os.path.exists(file_path):
+            try:
+                file_stat = os.stat(file_path)
+                logger.error(f"Размер: {file_stat.st_size} байт")
+                logger.error(f"Время изменения: {file_stat.st_mtime}")
+            except Exception as e:
+                logger.error(f"Не удалось получить stat файла: {e}")
+        
+        # Проверяем все процессы, блокирующие файл
+        try:
+            import psutil
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    files = proc.open_files()
+                    for file in files:
+                        if file_path in file.path:
+                            logger.error(f"Заблокирован процессом: PID={proc.info['pid']}, Name={proc.info['name']}")
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        except Exception as e:
+            logger.error(f"Ошибка при проверке процессов: {e}")

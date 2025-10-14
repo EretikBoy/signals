@@ -36,6 +36,7 @@ class TreeManager(QObject):
         
         # Подключаем сигнал перемещения
         self.tree.analysis_moved.connect(self.handle_analysis_moved)
+        self.tree.itemChanged.connect(self.on_item_changed)
         
         logger.debug("TreeManager инициализирован")
     
@@ -324,6 +325,8 @@ class TreeManager(QObject):
         
         if file_paths:
             self.load_files_to_subject(subject_code, file_paths)
+
+        
     
     def delete_current_subject(self):
         """Удаление текущего выбранного предмета"""
@@ -364,6 +367,29 @@ class TreeManager(QObject):
         self.tree.clear()
         self.subject_items.clear()
         logger.debug("Дерево очищено")
+
+    def on_item_changed(self, item, column):
+        """Просто обновляем отображаемое имя при редактировании"""
+        if column == 1 and isinstance(item, SubjectItem):
+            new_name = item.text(1).strip()
+            if new_name:
+                item.subject_name = new_name
+
+    def get_subject_name(self, subject_code):
+        """Получение отображаемого имени предмета"""
+        if subject_code in self.subject_items:
+            return self.subject_items[subject_code].subject_name
+        return subject_code
+    
+    def get_all_subject_names(self):
+        """Получение всех имен предметов"""
+        return {code: item.subject_name for code, item in self.subject_items.items()}
+    
+    def set_subject_name(self, subject_code, subject_name):
+        """Установка имени для предмета"""
+        if subject_code in self.subject_items:
+            self.subject_items[subject_code].subject_name = subject_name
+            self.subject_items[subject_code].setText(1, subject_name)
     
     def set_button_style(self, button, style_type='normal'):
         """Установка стиля для кнопки"""

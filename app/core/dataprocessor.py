@@ -1,6 +1,8 @@
 # core/dataprocessor.py
+from typing import Dict, Any, Callable
+from functools import wraps
+
 import numpy as np
-from typing import Dict, Any
 
 import logging
 logger = logging.getLogger(__name__)
@@ -56,7 +58,46 @@ class Processor:
         self.params = data['params']
         self._cache = {}
         self._precomputed = {}  # Для данных, не зависящих от параметров
+        self._rounding_precision = 12
         self._update_derived_params()
+
+
+    def _round_data(self, data: Any) -> Any:
+        """
+        Рекурсивно округляет числа в структурах данных до заданной точности.
+        
+        Поддерживает:
+        - отдельные числа (int, float)
+        - numpy массивы
+        - списки и кортежи
+        - словари
+        - pandas Series и DataFrame (если есть зависимость от pandas)
+        """
+        if isinstance(data, (int, np.integer)):
+            return data
+        elif isinstance(data, (float, np.floating)):
+            return round(data, self._rounding_precision)
+        elif isinstance(data, np.ndarray):
+            return np.round(data, self._rounding_precision)
+        elif isinstance(data, (list, tuple)):
+            return type(data)(self._round_data(item) for item in data)
+        elif isinstance(data, dict):
+            return {key: self._round_data(value) for key, value in data.items()}
+        # Если установлен pandas
+        elif hasattr(data, '__class__') and data.__class__.__name__ in ['Series', 'DataFrame']:
+            return data.round(self._rounding_precision)
+        else:
+            return data
+        
+    def rounded_property(func: Callable):
+        """
+        Декоратор для автоматического округления возвращаемых значений свойств.
+        """
+        @wraps(func)
+        def wrapper(self):
+            result = func(self)
+            return self._round_data(result)
+        return wrapper
         
     def update_params(self, new_params: Dict[str, Any]):
         """Обновление параметров и сброс зависимого кэша"""
@@ -398,7 +439,7 @@ class Processor:
             q_factor = resonance_freq / bandwidth_707 if bandwidth_707 > 0 else 0
             
             channel_params[name] = {
-                'max_amplitude': max_amp,
+                'max_amplitude': max_amp*2, #NOTE : тут надо быть крайне аккуратным, т.к. с физической точки зрения мы ничего не сделали, а только умножили на 2 значение выводимое пользователю
                 'resonance_frequency': resonance_freq,
                 'bandwidth_707': bandwidth_707,
                 'bandwidth_707_range': bandwidth_707_range,
@@ -442,6 +483,7 @@ class Processor:
         return (lower_bound, upper_bound)
 
     @property
+    @rounded_property
     def raw_data(self):
         """Исходные данные"""
         if 'raw_data' not in self._precomputed:
@@ -452,16 +494,19 @@ class Processor:
         return self._precomputed['raw_data']
 
     @property
+    @rounded_property
     def smoothed_data(self):
         """Сглаженные данные (не зависят от параметров)"""
         return self._precompute_smoothed_data()
 
     @property
+    @rounded_property
     def cropped_data(self):
         """Обрезанные данные (зависят от параметров)"""
         return self._get_cropped_data()
 
     @property
+    @rounded_property
     def rawplot(self):
         """Данные для исходного графика"""
         raw_data = self.raw_data
@@ -473,6 +518,7 @@ class Processor:
         }
 
     @property
+    @rounded_property
     def smoothedplot(self):
         """Данные для графика сглаженных сигналов"""
         cropped_data = self._get_cropped_data()
@@ -484,6 +530,7 @@ class Processor:
         }
 
     @property
+    @rounded_property
     def freqresponse_linear(self):
         """Данные для графика АЧХ в линейной шкале"""
         freq_data = self._get_freq_response_data()
@@ -496,6 +543,7 @@ class Processor:
         return freq_data['dB']
 
     @property
+    @rounded_property
     def channel_parameters(self):
         """Параметры каналов"""
         return self._get_channel_parameters()
@@ -507,12 +555,14 @@ class Processor:
         return first_channel['Время'].iloc[0]
 
     @property
+    @rounded_property
     def raw_max_amp(self):
         """Максимальная амплитуда в исходных данных по каналам"""
         extremums = self._precompute_raw_extremums()
         return {name: data['max_amp'] for name, data in extremums.items()}
 
     @property
+    @rounded_property
     def raw_min_amp(self):
         """Минимальная амплитуда в исходных данных по каналам"""
         extremums = self._precompute_raw_extremums()

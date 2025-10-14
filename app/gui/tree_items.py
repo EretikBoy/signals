@@ -98,11 +98,12 @@ class SubjectItem(QTreeWidgetItem):
     def __init__(self, subject_code):
         super().__init__()
         self.subject_code = subject_code
+        self.subject_name = subject_code
         self.analyses = {}  # analysis_index -> AnalysisItem
         self.next_analysis_index = 0  # Счетчик индексов для этого предмета
         
         # Настройка отображения
-        self.setText(1, subject_code)
+        self.setText(1, self.subject_name)
         self.setFlags(self.flags() | Qt.ItemFlag.ItemIsEditable | Qt.ItemFlag.ItemIsDropEnabled)
         self.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
     

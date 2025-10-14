@@ -143,10 +143,11 @@ class DataParser:
     def _parse_csv(self, file_path: str) -> bool:
         '''Парсинг CSV файла с данными осциллографа'''
         try:
-            # Чтение всего CSV файла
-            df = pd.read_csv(file_path, header=None)
+            #Используем контекстный менеджер для чтения CSV
+            with open(file_path, 'r', encoding='utf-8') as file:
+                df = pd.read_csv(file, header=None)
             
-            # Извлечение метаданных и данных за одно чтение
+            # Остальной код без изменений
             metadata_ch1 = df.iloc[:16, 0:3].dropna(how='all').T
             metadata_ch2 = df.iloc[:16, 6:9].dropna(how='all').T
             data = df.iloc[:, [3, 4, 9, 10]]

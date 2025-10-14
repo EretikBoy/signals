@@ -1,6 +1,6 @@
 import sys
 import os
-
+import traceback
 import logging
 from PyQt6.QtWidgets import QApplication
 
@@ -27,10 +27,42 @@ def setup_logger():
     logging.getLogger('PyQt6').setLevel(logging.WARNING)
     logging.getLogger('matplotlib').setLevel(logging.WARNING)
     logging.getLogger('pyvisa').setLevel(logging.WARNING)
+    logging.getLogger('data_manager').setLevel(logging.WARNING)
+
+def global_exception_handler(exc_type, exc_value, exc_traceback):
+    """Глобальный обработчик неперехваченных исключений"""
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+        
+    error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    logging.critical(f"Необработанное исключение: {error_msg}")
+    
+    # Пытаемся сохранить данные перед закрытием
+    try:
+        # Получаем главное окно если оно существует
+        app = QApplication.instance()
+        if app and app.activeWindow() and isinstance(app.activeWindow(), MainWindow):
+            main_window = app.activeWindow()
+            main_window.emergency_save()
+            
+        QMessageBox.critical(
+            None,
+            "Критическая ошибка",
+            f"Произошла критическая ошибка. Приложение будет закрыто.\n\n"
+            f"Ошибка: {str(exc_value)}\n\n"
+            "Данные были сохранены в резервную копию."
+        )
+    except Exception as e:
+        logging.error(f"Ошибка при аварийном сохранении: {str(e)}")
+        
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
 
 
 def main():
     """Точка входа в приложение"""
+    sys.excepthook = global_exception_handler #Даже если всё приложение обвалится данные должны быть сохранены
+
     setup_logger()
     app = QApplication(sys.argv)
     

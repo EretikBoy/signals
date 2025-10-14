@@ -13,7 +13,6 @@ from matplotlib.backends.backend_qt import NavigationToolbar2QT as NavigationToo
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 
-from core.dataprocessor import Processor
 
 class CustomNavigationToolbar(NavigationToolbar):
     def __init__(self, canvas, parent=None):
@@ -126,7 +125,7 @@ class GraphDialog(QDialog):
         self.gain_spin = QDoubleSpinBox()
         self.gain_spin.setRange(0.1, 100.0)
         self.gain_spin.setSingleStep(0.1)
-        self.gain_spin.setValue(self.params.get('gain', 1.0))
+        self.gain_spin.setValue(self.params.get('gain', 7.0))
         self.gain_spin.valueChanged.connect(self.apply_values)
         settings_layout.addWidget(self.gain_spin, row, 1)
         row += 1
@@ -135,7 +134,7 @@ class GraphDialog(QDialog):
         self.fixedlevel_spin = QDoubleSpinBox()
         self.fixedlevel_spin.setRange(0.0, 100)
         self.fixedlevel_spin.setSingleStep(0.01)
-        self.fixedlevel_spin.setValue(self.params.get('fixedlevel', 0.1))
+        self.fixedlevel_spin.setValue(self.params.get('fixedlevel', 0.6))
         self.fixedlevel_spin.valueChanged.connect(self.apply_values)
         settings_layout.addWidget(self.fixedlevel_spin, row, 1)
         row += 1
@@ -251,6 +250,8 @@ class GraphDialog(QDialog):
             'fixedlevel': self.fixedlevel_spin.value()
         }
         
+
+
         # Обновляем параметры в процессоре
         self.processor.update_params(new_params)
         
@@ -269,8 +270,8 @@ class GraphDialog(QDialog):
         if forecast:
             lower_bound, upper_bound = forecast
             forecast_text = f"Прогноз полосы частот для проверки:\n"
-            forecast_text += f"Нижняя граница: {lower_bound:.2f} Гц\n"
-            forecast_text += f"Верхняя граница: {upper_bound:.2f} Гц\n"
+            forecast_text += f"Нижняя граница: {lower_bound:.0f} Гц\n"
+            forecast_text += f"Верхняя граница: {upper_bound:.0f} Гц\n"
             forecast_text += f"Центральная частота: {(lower_bound + upper_bound) / 2:.2f} Гц"
         else:
             forecast_text = "Прогноз не рассчитан. Убедитесь, что выбранный канал существует и параметры корректны."
@@ -311,6 +312,10 @@ class GraphDialog(QDialog):
             rect = Rectangle((start_time, y_min), record_time, y_max - y_min,
                             linewidth=1, edgecolor='r', facecolor='r', alpha=0.2)
             self.ax1.add_patch(rect)
+
+            self.ax1.axvline(x=start_time, ymin=y_min, ymax=y_max, 
+                     color='r', linewidth=1, zorder=5)
+
             # Добавляем запись в легенду
             self.ax1.plot([], [], color='r', alpha=0.2, linewidth=10, label='Анализируемый отрезок')
         
@@ -338,7 +343,7 @@ class GraphDialog(QDialog):
                 # Уровень fixedlevel
                 fixedlevel = self.fixedlevel_spin.value()
                 self.ax3.axhline(y=fixedlevel, color='orange', linestyle='--', 
-                                label=f'Уровень {fixedlevel}')
+                                label=f'Уровень {fixedlevel:.2f}')
         
         # Настраиваем графики с улучшенными легендами
         self.ax1.set_title("Исходные сигналы")
@@ -381,7 +386,7 @@ class GraphDialog(QDialog):
         text += f"Резонансная частота: {params['resonance_frequency']:.2f} Гц\n"
         text += f"Ширина полосы (0.707): {params['bandwidth_707']:.2f} Гц\n"
         text += f"  (от {params['bandwidth_707_range'][0]:.2f} до {params['bandwidth_707_range'][1]:.2f} Гц)\n"
-        text += f"Ширина полосы (уровень {fixedlevel}): {params['bandwidth_fixed']:.2f} Гц\n"
+        text += f"Ширина полосы (уровень {fixedlevel:.2f}): {params['bandwidth_fixed']:.2f} Гц\n"
         text += f"  (от {params['bandwidth_fixed_range'][0]:.2f} до {params['bandwidth_fixed_range'][1]:.2f} Гц)\n"
         text += f"Добротность: {params['q_factor']:.2f}"
         

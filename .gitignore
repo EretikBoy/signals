@@ -21,3 +21,4 @@ app/dist
 app/logs
 logs
 *.xlsx
+app/emergency_backups

@@ -1,4 +1,5 @@
 #gui/window.py
+import os
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QLabel, QMessageBox, 
     QHBoxLayout, QPushButton, QTreeWidget
@@ -89,13 +90,13 @@ class MainWindow(QMainWindow):
         tree_button_layout.addWidget(load_analysis_button)
 
 
-        summary_button = QPushButton('Сводный график АЧХ')
+        summary_button = QPushButton('Экспорт сводных данных')
         summary_button.clicked.connect(self.show_summary_dialog)
         
         tree_button_layout.addWidget(summary_button)
         
         main_layout.addLayout(tree_button_layout)
-    
+
     def setup_instruments_section(self, main_layout):
         """Настройка секции приборов"""
         self.instrument_manager = InstrumentManager()
@@ -164,6 +165,8 @@ class MainWindow(QMainWindow):
                     analysis_data = self.data_manager.get_analysis_data(subject_code, analysis_index)
                     if analysis_data:
                         self.tree_manager.update_analysis_params(subject_code, analysis_index, analysis_data['params'])
+
+
             else:
                 # Ошибка загрузки
                 self.tree_manager.update_analysis_display(subject_code, analysis_index, False, None, result)
@@ -174,9 +177,9 @@ class MainWindow(QMainWindow):
     
     def on_analysis_added(self, subject_code, analysis_index):
         """Обработка добавления нового анализа"""
-        # Автоматически инициализируется в data_manager при загрузке файла
-        pass
-    
+        # Автоматически инициализируется в data_manager при загрузке файла  
+
+
     def on_item_selected(self, subject_code, analysis_index):
         """Обработка выбора элемента (открытие графика)"""
         if analysis_index == -1:
@@ -233,6 +236,8 @@ class MainWindow(QMainWindow):
             
             # Удаляем диалог из регистрации
             self.data_manager.unregister_dialog(subject_code, analysis_index)
+            # АВТОСОХРАНЕНИЕ ПОСЛЕ закрытия диалога, предполагаем, что пользователь сделал много важного
+            self.auto_save()
     
     def on_analysis_moved(self, old_subject, new_subject, analysis_index):
         """Обработка перемещения анализа между предметами"""
@@ -356,6 +361,9 @@ class MainWindow(QMainWindow):
             # Обновляем отображение
             self.tree_manager.update_analysis_display(subject_code, analysis_index, True, result)
             self.tree_manager.update_analysis_params(subject_code, analysis_index, measurement_params)
+
+            # АВТОСОХРАНЕНИЕ ПОСЛЕ УСПЕШНОГО ИЗМЕРЕНИЯ
+            self.auto_save()
         else:
             logger.error(f"Ошибка сохранения данных осциллографа: {result}")
             self.on_log_message(result)
@@ -388,17 +396,19 @@ class MainWindow(QMainWindow):
         
         # Загружаем предметы и анализы
         for item in loaded_data:
+            
             subject_code = item['subject_code']
+            subject_name = item['subject_name']
             analysis_index = item['analysis_index']  # Индекс из DataManager
             analysis_info = item['analysis_info']
             file_exists = item['file_exists']
             
-            logger.debug(f"Загрузка анализа: {subject_code}, {analysis_index}")
+            logger.debug(f"Загрузка анализа: {subject_code}, {analysis_index}, {subject_name}")
             
             # Добавляем предмет, если его нет
             if subject_code not in self.tree_manager.subject_items:
                 self.tree_manager.add_subject(subject_code)
-                logger.debug(f"Добавлен предмет: {subject_code}")
+                logger.debug(f"Добавлен предмет: {subject_code} с именем {subject_name}")
             
             # Добавляем анализ с ПРАВИЛЬНЫМ индексом из DataManager
             added_index = self.tree_manager.add_analysis_to_subject(subject_code, {
@@ -408,6 +418,8 @@ class MainWindow(QMainWindow):
             
             logger.debug(f"Анализ добавлен: {subject_code}, запрошенный индекс: {analysis_index}, фактический: {added_index}")
             
+            self.tree_manager.set_subject_name(subject_code, subject_name)
+
             # Обновляем отображение
             if file_exists:
                 self.tree_manager.update_analysis_display(subject_code, added_index, True, analysis_info['file_name'])
@@ -501,3 +513,84 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Ошибка при открытии диалога сводного графика: {str(e)}")
             QMessageBox.critical(self, 'Ошибка', f'Не удалось открыть диалог сводного графика: {str(e)}')
+
+    def emergency_save(self):
+        """Аварийное сохранение данных при ошибке"""
+        try:
+            logger.info("Выполняется аварийное сохранение...")
+            
+            # Создаем папку для резервных копий
+            backup_dir = os.path.join(os.path.dirname(__file__), '..', 'emergency_backups')
+            os.makedirs(backup_dir, exist_ok=True)
+            
+            # Генерируем имя файла с временной меткой
+            backup_file = os.path.join(backup_dir, f'emergency_backup.analysis')
+            
+            # Используем существующий метод сохранения
+            success = self.data_manager.save_analysis(
+                self.tree_manager, 
+                save_selected_only=False, 
+                parent=None,
+                auto_save=True    # Не показываем диалоги при аварийном сохранении
+            )
+            
+            if success:
+                logger.info(f"Аварийная копия сохранена: {backup_file}")
+            else:
+                logger.error("Не удалось выполнить аварийное сохранение")
+                
+            return success
+            
+        except Exception as e:
+            logger.error(f"Ошибка при аварийном сохранении: {str(e)}")
+            return False
+
+    def auto_save(self):
+        """Автоматическое сохранение при значимых действиях"""
+        try:
+            # Проверяем, есть ли данные для сохранения
+            if hasattr(self.data_manager, 'subjects_data') and self.data_manager.subjects_data:
+                logger.debug("Выполняется автосохранение...")
+                self.emergency_save()
+        except Exception as e:
+            logger.error(f"Ошибка автосохранения: {str(e)}")
+
+
+    def closeEvent(self, event):
+        """Обработка закрытия приложения с улучшенной обработкой ошибок"""
+        try:
+            # Предлагаем сохранить данные перед выходом
+            reply = QMessageBox.question(
+                self,
+                'Подтверждение выхода',
+                'Сохранить данные перед выходом?',
+                QMessageBox.StandardButton.Yes | 
+                QMessageBox.StandardButton.No | 
+                QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Yes
+            )
+            
+            if reply == QMessageBox.StandardButton.Cancel:
+                event.ignore()
+                return
+            elif reply == QMessageBox.StandardButton.Yes:
+                # Используем существующий метод сохранения
+                self.save_all_analysis()
+            
+            # Останавливаем все потоки
+            self.worker_manager.stop_measurement()
+            self.worker_manager.wait_for_all()
+            
+            # Закрываем все открытые диалоги
+            for dialog in self.data_manager.open_dialogs.values():
+                try:
+                    dialog.close()
+                except:
+                    pass
+                    
+            event.accept()
+            
+        except Exception as e:
+            logger.error(f"Ошибка при закрытии приложения: {str(e)}")
+            # Все равно закрываем приложение
+            event.accept()
