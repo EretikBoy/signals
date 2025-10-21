@@ -3,8 +3,8 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = []
 binaries = []
-hiddenimports = ['tm_devices', 'tm_devices.components', 'tm_devices.components.dm_config_parser']
-tmp_ret = collect_all('tomli')
+hiddenimports = []
+tmp_ret = collect_all('tm_devices')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
@@ -14,7 +14,7 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=['.'],
+    hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],

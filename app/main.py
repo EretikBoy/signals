@@ -2,7 +2,7 @@ import sys
 import os
 import traceback
 import logging
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication,QMessageBox
 
 # from modules.gwinstekprovider import GWInstekProvider
 # from modules.rigolprovider import *
@@ -16,7 +16,7 @@ from gui.window import MainWindow
 def setup_logger():
     """Настройка системы логирования"""
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.WARNING,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(sys.stdout)
@@ -49,7 +49,7 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
         QMessageBox.critical(
             None,
             "Критическая ошибка",
-            f"Произошла критическая ошибка. Приложение будет закрыто.\n\n"
+            f"Произошла необработанная ошибка. Сообщите разработчику\n\n"
             f"Ошибка: {str(exc_value)}\n\n"
             "Данные были сохранены в резервную копию."
         )

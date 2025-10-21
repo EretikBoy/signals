@@ -439,7 +439,7 @@ class Processor:
             q_factor = resonance_freq / bandwidth_707 if bandwidth_707 > 0 else 0
             
             channel_params[name] = {
-                'max_amplitude': max_amp*2, #NOTE : тут надо быть крайне аккуратным, т.к. с физической точки зрения мы ничего не сделали, а только умножили на 2 значение выводимое пользователю
+                'max_amplitude': max_amp,
                 'resonance_frequency': resonance_freq,
                 'bandwidth_707': bandwidth_707,
                 'bandwidth_707_range': bandwidth_707_range,

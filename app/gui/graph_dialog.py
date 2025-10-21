@@ -15,29 +15,79 @@ from matplotlib.patches import Rectangle
 
 
 class CustomNavigationToolbar(NavigationToolbar):
+
+    toolitems = (
+        ('Home', 'Восстановить исходный вид', 'home', 'home'),
+        ('Back', 'Вернуться к предыдущему виду', 'back', 'back'),
+        ('Forward', 'Перейти к следующему виду', 'forward', 'forward'),
+        (None, None, None, None),
+        ('Pan', 'Панорамирование: левая кнопка - панорамирование, правая - масштаб', 'move', 'pan'),
+        ('Zoom', 'Масштабирование: выделите область', 'zoom_to_rect', 'zoom'),
+        #('Subplots', 'Настройка подграфиков', 'subplots', 'configure_subplots'),
+        (None, None, None, None),
+        ('Save', 'Сохранить изображение', 'filesave', 'save_figure'),
+    )
+
     def __init__(self, canvas, parent=None):
         super().__init__(canvas, parent)
+        self.coord_label = None
+        self._init_coord_label()
+        
+    def _init_coord_label(self):
+        """Инициализация метки для координат"""
+        
         self.coord_label = QLabel()
         self.coord_label.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
-        self.coord_label.setStyleSheet("background-color: white; border: 1px solid black;")
+        self.coord_label.setStyleSheet("background-color: white; border: 1px solid black; padding: 2px;")
         self.coord_label.hide()
         
+        # Подключаем отслеживание координат
+        self.canvas.mpl_connect('motion_notify_event', self._update_mouse_coords)
+        self.canvas.mpl_connect('figure_leave_event', self._hide_mouse_coords)
+
     def addmousecoords(self):
         self.canvas.mpl_connect('motion_notify_event', self._update_mouse_coords)
-
+        
     def _update_mouse_coords(self, event):
-        if event.inaxes:
+        """Обновление координат мыши"""
+        if event.inaxes and self.parent() and self.parent().isVisible():
             x, y = event.xdata, event.ydata
             text = f"x: {x:.3f}, y: {y:.3f}"
             self.coord_label.setText(text)
             self.coord_label.adjustSize()
             
-            # Позиционируем метку рядом с курсором (глобальные координаты)
+            # Позиционируем метку рядом с курсором
             pos = QCursor.pos()
             self.coord_label.move(pos + QPoint(15, 15))
             self.coord_label.show()
         else:
             self.coord_label.hide()
+            
+    def _hide_mouse_coords(self, event):
+        """Скрытие метки координат"""
+        if self.coord_label:
+            self.coord_label.hide()
+            
+    # Переопределяем метод для перевода системных сообщений
+    def set_message(self, msg):
+        """Перевод системных сообщений тулбара"""
+        translations = {
+            'Click and drag to zoom': 'Выделите область для масштабирования',
+            'Click and drag to pan': 'Перетащите для перемещения графика',
+            'Zoom to rectangle': 'Масштабировать выделенную область',
+            'Pan axes with left mouse, zoom with right': 'Левая кнопка - перемещение, правая - масштаб',
+            'Reset original view': 'Восстановить исходный вид',
+            'Back to previous view': 'Вернуться к предыдущему виду',
+            'Forward to next view': 'Перейти к следующему виду',
+        }
+        
+        # Ищем перевод для сообщения
+        for eng, rus in translations.items():
+            if msg.startswith(eng):
+                msg = rus
+                break
+                
+        super().set_message(msg)
 
 class GraphDialog(QDialog):
     '''Диалоговое окно с графиками и настройками параметров'''
@@ -382,7 +432,7 @@ class GraphDialog(QDialog):
         fixedlevel = self.fixedlevel_spin.value()
         
         text = f"Параметры канала {self.params['selected_channel']}:\n\n"
-        text += f"Максимальная амплитуда: {params['max_amplitude']:.4f} В\n"
+        text += f"Максимальная амплитуда: {(params['max_amplitude']*2):.4f} В\n" #NOTE : тут надо быть крайне аккуратным, т.к. с физической точки зрения мы ничего не сделали, а только умножили на 2 значение выводимое пользователю
         text += f"Резонансная частота: {params['resonance_frequency']:.2f} Гц\n"
         text += f"Ширина полосы (0.707): {params['bandwidth_707']:.2f} Гц\n"
         text += f"  (от {params['bandwidth_707_range'][0]:.2f} до {params['bandwidth_707_range'][1]:.2f} Гц)\n"
@@ -391,3 +441,15 @@ class GraphDialog(QDialog):
         text += f"Добротность: {params['q_factor']:.2f}"
         
         self.params_display.setPlainText(text)
+    
+    def hideEvent(self, event):
+        """Скрытие метки координат при скрытии диалога"""
+        if hasattr(self, 'toolbar') and self.toolbar.coord_label:
+            self.toolbar.coord_label.hide()
+        super().hideEvent(event)
+        
+    def closeEvent(self, event):
+        """Скрытие метки координат при закрытии диалога"""
+        if hasattr(self, 'toolbar') and self.toolbar.coord_label:
+            self.toolbar.coord_label.hide()
+        super().closeEvent(event)

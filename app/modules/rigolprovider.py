@@ -54,8 +54,8 @@ class RigolProvider:
         """Получить пределы параметров для конкретной модели"""
         model_upper = model_name.upper()
         
-        if "DG1000" in model_upper or "DG1062" in model_upper or "DG1032" in model_upper:
-            return self._parameter_limits["DG1000Z"]
+        if "DG1022" in model_upper :
+            return self._parameter_limits["DG1022"]
         elif "DG800" in model_upper:
             return self._parameter_limits["DG800"]
         else:
