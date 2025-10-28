@@ -31,7 +31,7 @@ class VISAProvider:
             'query_delay': 0.1
         }
     }
-    
+
     def __init__(self, resource_name: Optional[str] = None, device_type: str = 'default',
                  logger: Optional[logging.Logger] = None, **kwargs):
         self.resource_name = resource_name
@@ -57,11 +57,11 @@ class VISAProvider:
             self.session.write_termination = self.settings['write_terminator']
             self.session.chunk_size = self.settings['chunk_size']
             self.session.query_delay = self.settings['query_delay']
-            
+
             self.is_connected = True
             self.logger.info(f"Connected to {self.resource_name}")
             return True
-            
+
         except pyvisa.Error as e:
             self.is_connected = False
             self.logger.error(f"Connection failed: {e}")
@@ -76,7 +76,7 @@ class VISAProvider:
     def write(self, data: str) -> None:
         if not self.is_connected or not self.session:
             raise VISConnectionError("Not connected to VISA device")
-            
+
         try:
             self.session.write(data)
         except pyvisa.Error as e:
@@ -87,7 +87,7 @@ class VISAProvider:
     def read(self) -> str:
         if not self.is_connected or not self.session:
             raise VISConnectionError("Not connected to VISA device")
-            
+
         try:
             return self.session.read()
         except pyvisa.Error as e:
@@ -98,7 +98,7 @@ class VISAProvider:
     def read_raw(self) -> bytes:
         if not self.is_connected or not self.session:
             raise VISConnectionError("Not connected to VISA device")
-            
+
         try:
             return self.session.read_raw()
         except pyvisa.Error as e:
@@ -109,7 +109,7 @@ class VISAProvider:
     def query(self, command: str, delay: float = 0.1) -> str:
         if not self.is_connected or not self.session:
             raise VISConnectionError("Not connected to VISA device")
-            
+
         try:
             return self.session.query(command)
         except pyvisa.Error as e:
@@ -127,16 +127,16 @@ class VISAProvider:
     def __enter__(self):
         self.connect()
         return self
-        
-    def __exit__(self, exc_type: Optional[Type[BaseException]], 
-                 exc_val: Optional[BaseException], 
+
+    def __exit__(self, exc_type: Optional[Type[BaseException]],
+                 exc_val: Optional[BaseException],
                  exc_tb: Optional[TracebackType]) -> bool:
         self.disconnect()
         return False
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    
+
     try:
         with VISAProvider('TCPIP0::192.168.1.1::INSTR') as visa:
             response = visa.query("*IDN?")

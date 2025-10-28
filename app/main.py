@@ -2,6 +2,7 @@ import sys
 import os
 import traceback
 import logging
+from gui.window import MainWindow
 from PyQt6.QtWidgets import QApplication,QMessageBox
 
 # from modules.gwinstekprovider import GWInstekProvider
@@ -11,18 +12,16 @@ from PyQt6.QtWidgets import QApplication,QMessageBox
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from gui.window import MainWindow
-
 def setup_logger():
     """Настройка системы логирования"""
     logging.basicConfig(
-        level=logging.WARNING,
+        level=logging.DEBUG,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(sys.stdout)
         ]
     )
-    
+
     # Уменьшаем verbosity для некоторых библиотек
     logging.getLogger('PyQt6').setLevel(logging.WARNING)
     logging.getLogger('matplotlib').setLevel(logging.WARNING)
@@ -34,10 +33,10 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
-        
+
     error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
     logging.critical(f"Необработанное исключение: {error_msg}")
-    
+
     # Пытаемся сохранить данные перед закрытием
     try:
         # Получаем главное окно если оно существует
@@ -45,7 +44,7 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
         if app and app.activeWindow() and isinstance(app.activeWindow(), MainWindow):
             main_window = app.activeWindow()
             main_window.emergency_save()
-            
+
         QMessageBox.critical(
             None,
             "Критическая ошибка",
@@ -55,7 +54,7 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
         )
     except Exception as e:
         logging.error(f"Ошибка при аварийном сохранении: {str(e)}")
-        
+
     sys.__excepthook__(exc_type, exc_value, exc_traceback)
 
 
@@ -65,7 +64,7 @@ def main():
 
     setup_logger()
     app = QApplication(sys.argv)
-    
+
     window = MainWindow()
     window.show()
 
@@ -78,7 +77,7 @@ if __name__ == "__main__":
 #     with GWInstekProvider('COM8') as device:
 #         # Создаем фигуру и оси для графика
 #         fig, ax = plt.subplots(figsize=(10, 6))
-        
+
 #         # Перебираем все каналы
 #         for channel_num in range(1, device.chnum + 1):
 #             channel = device.get_channel_data(channel_num)
@@ -86,23 +85,23 @@ if __name__ == "__main__":
 #                 # Извлекаем временные данные и амплитуды
 #                 time_data = channel.data['Время'].values
 #                 amplitude_data = channel.data['Амплитуда'].values
-                
+
 #                 # Строим график для этого канала
 #                 ax.plot(time_data, amplitude_data, label=f'CH{channel_num}')
-                
+
 #                 print(f"Канал CH{channel_num}:")
 #                 print(f"  Количество точек: {len(time_data)}")
 #                 print(f"  Временной диапазон: {time_data[0]:.6f} - {time_data[-1]:.6f} сек")
 #                 print(f"  Амплитудный диапазон: {amplitude_data.min():.3f} - {amplitude_data.max():.3f} В")
 #                 print()
-        
+
 #         # Настраиваем график
 #         ax.set_xlabel('Время, сек')
 #         ax.set_ylabel('Амплитуда, В')
 #         ax.set_title('Сигналы с осциллографа GWInstek')
 #         ax.grid(True)
 #         ax.legend()
-        
+
 #         # Показываем график
 #         plt.tight_layout()
 #         plt.show()
@@ -110,12 +109,12 @@ if __name__ == "__main__":
 # if __name__ == '__main__':
 #     # Пример использования
 #     logging.basicConfig(level=logging.INFO)
-    
+
 #     try:
 #         with RigolProvider('USB0::0x1AB1::0x0588::DG1D140300224::INSTR') as rigol:
 #             # Проверка соединения
 #             print(f"Connected to: {rigol.model_name}")
-            
+
 #             # Настройка развертки
 #             rigol.configure_sweep(
 #                 start_freq=1000,
@@ -125,10 +124,10 @@ if __name__ == "__main__":
 #                 amplitude=2.5,
 #                 offset=0.0
 #             )
-            
+
 #             # Запуск развертки на 10 секунд
 #             rigol.run_sweep(30)
-            
+
 #     except RigolError as e:
 #         print(f"Rigol error occurred: {e}")
 #     except Exception as e:
@@ -140,7 +139,7 @@ if __name__ == "__main__":
 #         with TektronixProvider('USB0::0x0699::0x0408::C010852::INSTR') as device:
 #             # Создаем фигуру и оси для графика
 #             fig, ax = plt.subplots(figsize=(10, 6))
-            
+
 #             # Перебираем все каналы
 #             for channel_num in range(1, device.chnum + 1):
 #                 channel = device.get_channel_data(channel_num)
@@ -148,29 +147,24 @@ if __name__ == "__main__":
 #                     # Извлекаем временные данные и амплитуды
 #                     time_data = channel.data['Время'].values
 #                     amplitude_data = channel.data['Амплитуда'].values
-                    
+
 #                     # Строим график для этого канала
 #                     ax.plot(time_data, amplitude_data, label=f'CH{channel_num}')
-                    
+
 #                     print(f"Канал CH{channel_num}:")
 #                     print(f"  Количество точек: {len(time_data)}")
 #                     print()
-            
+
 #             # Настраиваем график
 #             ax.set_xlabel('Время, сек')
 #             ax.set_ylabel('Амплитуда, В')
 #             ax.set_title(f'Сигналы с осциллографа {device.model_name}')
 #             ax.grid(True)
 #             ax.legend()
-            
+
 #             # Показываем график
 #             plt.tight_layout()
 #             plt.show()
 
 #     except Exception as e:
 #         print(f"Ошибка: {str(e)}")
-
-    
-
-
-

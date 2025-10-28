@@ -1,6 +1,6 @@
 # gui/graph_dialog.py
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
+    QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QSpinBox, QDoubleSpinBox, QGroupBox, QGridLayout,
     QComboBox, QTextEdit, QSizePolicy
 )
@@ -32,22 +32,22 @@ class CustomNavigationToolbar(NavigationToolbar):
         super().__init__(canvas, parent)
         self.coord_label = None
         self._init_coord_label()
-        
+
     def _init_coord_label(self):
         """Инициализация метки для координат"""
-        
+
         self.coord_label = QLabel()
         self.coord_label.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
         self.coord_label.setStyleSheet("background-color: white; border: 1px solid black; padding: 2px;")
         self.coord_label.hide()
-        
+
         # Подключаем отслеживание координат
         self.canvas.mpl_connect('motion_notify_event', self._update_mouse_coords)
         self.canvas.mpl_connect('figure_leave_event', self._hide_mouse_coords)
 
     def addmousecoords(self):
         self.canvas.mpl_connect('motion_notify_event', self._update_mouse_coords)
-        
+
     def _update_mouse_coords(self, event):
         """Обновление координат мыши"""
         if event.inaxes and self.parent() and self.parent().isVisible():
@@ -55,19 +55,19 @@ class CustomNavigationToolbar(NavigationToolbar):
             text = f"x: {x:.3f}, y: {y:.3f}"
             self.coord_label.setText(text)
             self.coord_label.adjustSize()
-            
+
             # Позиционируем метку рядом с курсором
             pos = QCursor.pos()
             self.coord_label.move(pos + QPoint(15, 15))
             self.coord_label.show()
         else:
             self.coord_label.hide()
-            
+
     def _hide_mouse_coords(self, event):
         """Скрытие метки координат"""
         if self.coord_label:
             self.coord_label.hide()
-            
+
     # Переопределяем метод для перевода системных сообщений
     def set_message(self, msg):
         """Перевод системных сообщений тулбара"""
@@ -80,43 +80,43 @@ class CustomNavigationToolbar(NavigationToolbar):
             'Back to previous view': 'Вернуться к предыдущему виду',
             'Forward to next view': 'Перейти к следующему виду',
         }
-        
+
         # Ищем перевод для сообщения
         for eng, rus in translations.items():
             if msg.startswith(eng):
                 msg = rus
                 break
-                
+
         super().set_message(msg)
 
 class GraphDialog(QDialog):
     '''Диалоговое окно с графиками и настройками параметров'''
-    
+
     def __init__(self, channels, params, processor, file_name, parent=None):
         super().__init__(parent)
         self.channels = channels
         self.params = params
         self.processor = processor
-        self.params['selected_channel']  = processor.params.get('selected_channel', 'CH2') # По умолчанию выбираем CH2 
+        self.params['selected_channel']  = processor.params.get('selected_channel', 'CH2') # По умолчанию выбираем CH2
         self.params['signal_start_channel'] = processor.params.get('signal_start_channel', 'CH1')  # По умолчанию для определения начала сигнала
         self.setWindowTitle(f'Графики и настройка параметров - {file_name}')
         self.setGeometry(200, 200, 1200, 800)
-        
+
         self.init_ui()
         # Устанавливаем начальный канал для определения начала сигнала
         self.update_plots()
         self.update_frequency_forecast()  # Добавляем начальный расчет прогноза
-    
+
     def init_ui(self):
         '''Инициализация пользовательского интерфейса'''
         layout = QHBoxLayout(self)
-        
+
         # Панель настроек
         settings_group = QGroupBox('Настройки параметров')
         settings_layout = QGridLayout(settings_group)
-        
+
         row = 0
-        
+
         # ВЫБОР КАНАЛА ДЛЯ ОПРЕДЕЛЕНИЯ НАЧАЛА СИГНАЛА - ПЕРВЫЙ
         settings_layout.addWidget(QLabel('Канал для определения начала сигнала:'), row, 0)
         self.signal_start_channel_combo = QComboBox()
@@ -125,7 +125,7 @@ class GraphDialog(QDialog):
         self.signal_start_channel_combo.currentTextChanged.connect(self.signal_start_channel_changed)
         settings_layout.addWidget(self.signal_start_channel_combo, row, 1)
         row += 1
-        
+
         # Выбор канала для анализа - ВТОРОЙ
         settings_layout.addWidget(QLabel('Канал для анализа:'), row, 0)
         self.channel_combo = QComboBox()
@@ -134,7 +134,7 @@ class GraphDialog(QDialog):
         self.channel_combo.currentTextChanged.connect(self.channel_changed)
         settings_layout.addWidget(self.channel_combo, row, 1)
         row += 1
-        
+
         # Поля для настройки параметров
         settings_layout.addWidget(QLabel('Стартовая частота (Гц):'), row, 0)
         self.start_freq_spin = QSpinBox()
@@ -143,7 +143,7 @@ class GraphDialog(QDialog):
         self.start_freq_spin.valueChanged.connect(self.param_changed)
         settings_layout.addWidget(self.start_freq_spin, row, 1)
         row += 1
-        
+
         settings_layout.addWidget(QLabel('Конечная частота (Гц):'), row, 0)
         self.end_freq_spin = QSpinBox()
         self.end_freq_spin.setRange(0, 100000)
@@ -151,7 +151,7 @@ class GraphDialog(QDialog):
         self.end_freq_spin.valueChanged.connect(self.param_changed)
         settings_layout.addWidget(self.end_freq_spin, row, 1)
         row += 1
-        
+
         settings_layout.addWidget(QLabel('Время записи (с):'), row, 0)
         self.record_time_spin = QDoubleSpinBox()
         self.record_time_spin.setRange(0.1, 100.0)
@@ -160,7 +160,7 @@ class GraphDialog(QDialog):
         self.record_time_spin.valueChanged.connect(self.param_changed)
         settings_layout.addWidget(self.record_time_spin, row, 1)
         row += 1
-        
+
         settings_layout.addWidget(QLabel("Относительное смещение строба (c):"), row, 0)
         self.cut_second_spin = QDoubleSpinBox()
         self.cut_second_spin.setRange(-100, 100.0)
@@ -169,7 +169,7 @@ class GraphDialog(QDialog):
         self.cut_second_spin.valueChanged.connect(self.apply_values)
         settings_layout.addWidget(self.cut_second_spin, row, 1)
         row += 1
-        
+
         # Новые поля: коэффициент усиления и пороговый уровень
         settings_layout.addWidget(QLabel('Коэффициент усиления:'), row, 0)
         self.gain_spin = QDoubleSpinBox()
@@ -179,7 +179,7 @@ class GraphDialog(QDialog):
         self.gain_spin.valueChanged.connect(self.apply_values)
         settings_layout.addWidget(self.gain_spin, row, 1)
         row += 1
-        
+
         settings_layout.addWidget(QLabel('Пороговый уровень (В):'), row, 0)
         self.fixedlevel_spin = QDoubleSpinBox()
         self.fixedlevel_spin.setRange(0.0, 100)
@@ -188,42 +188,42 @@ class GraphDialog(QDialog):
         self.fixedlevel_spin.valueChanged.connect(self.apply_values)
         settings_layout.addWidget(self.fixedlevel_spin, row, 1)
         row += 1
-        
+
         # Кнопка применения
         apply_button = QPushButton('Применить значения')
         apply_button.clicked.connect(self.apply_values)
         settings_layout.addWidget(apply_button, row, 0, 1, 2)
         row += 1
-        
+
         # Кнопка закрытия
         close_button = QPushButton('Закрыть')
         close_button.clicked.connect(self.accept)
         settings_layout.addWidget(close_button, row, 0, 1, 2)
-        
+
         # Область с графиками
         plots_widget = QGroupBox('Графики')
         plots_layout = QVBoxLayout(plots_widget)
-        
+
         # Создаем три графика
         self.figure = Figure(figsize=(10, 8), dpi=100)
         self.canvas = FigureCanvas(self.figure)
-        
+
         # Добавляем навигационную панель
         self.toolbar = CustomNavigationToolbar(self.canvas, self)
         plots_layout.addWidget(self.toolbar)
         self.toolbar.addmousecoords()
-        
+
         # Создаем три субплога
         self.ax1 = self.figure.add_subplot(311)
         self.ax2 = self.figure.add_subplot(312)
         self.ax3 = self.figure.add_subplot(313)
-        
+
         self.figure.tight_layout(pad=1.0)
         plots_layout.addWidget(self.canvas)
-        
+
         # ПРАВАЯ ПАНЕЛЬ - Параметры канала и прогноз
         right_panel = QVBoxLayout()
-        
+
         # Параметры канала
         params_group = QGroupBox('Параметры канала')
         params_layout = QVBoxLayout(params_group)
@@ -232,11 +232,11 @@ class GraphDialog(QDialog):
         # Убираем фиксированную высоту, чтобы текст мог занимать столько места, сколько нужно
         self.params_display.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         params_layout.addWidget(self.params_display)
-        
+
         # Прогноз полосы частот для проверки
         forecast_group = QGroupBox('Прогноз полосы частот для проверки')
         forecast_layout = QVBoxLayout(forecast_group)
-        
+
         # Критерий достаточности
         criterion_layout = QHBoxLayout()
         criterion_layout.addWidget(QLabel('Критерий достаточности (Гц/с):'))
@@ -247,50 +247,50 @@ class GraphDialog(QDialog):
         self.sufficient_criterion_spin.valueChanged.connect(self.update_frequency_forecast)
         criterion_layout.addWidget(self.sufficient_criterion_spin)
         forecast_layout.addLayout(criterion_layout)
-        
+
         # Отображение прогноза
         self.forecast_display = QTextEdit()
         self.forecast_display.setReadOnly(True)
         self.forecast_display.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         forecast_layout.addWidget(self.forecast_display)
-        
+
         right_panel.addWidget(params_group)
         right_panel.addWidget(forecast_group)
         right_panel.addStretch(1)
-        
+
         # Добавляем объекты в основной layout
         layout.addWidget(settings_group, 1)
         layout.addWidget(plots_widget, 3)
         layout.addLayout(right_panel, 1)
-    
+
     def channel_changed(self, channel_name):
         """Обработчик изменения выбранного канала"""
         self.params['selected_channel'] = channel_name
         self.update_plots()
         self.update_frequency_forecast()
-    
+
     def signal_start_channel_changed(self, channel_name):
         """Обработчик изменения канала для определения начала сигнала"""
         self.params['signal_start_channel'] = channel_name
         self.processor.set_signal_start_channel(channel_name)
         self.update_plots()
         self.update_frequency_forecast()  # Добавляем обновление прогноза
-    
+
     def param_changed(self):
         """Обработчик изменения параметров"""
         # При изменении параметров просто обновляем графики без применения к процессору
         self.update_plots()
         self.update_frequency_forecast()
-    
+
     def apply_values(self):
         '''Применение выбранных значений параметров'''
         # Сначала обновляем каналы на случай, если они были изменены
         self.params['signal_start_channel'] = self.signal_start_channel_combo.currentText()
         self.params['selected_channel'] = self.channel_combo.currentText()
-        
+
         # Устанавливаем канал для определения начала сигнала
         self.processor.set_signal_start_channel(self.params['signal_start_channel'])
-        
+
         new_params = {
             'start_freq': self.start_freq_spin.value(),
             'end_freq': self.end_freq_spin.value(),
@@ -299,24 +299,24 @@ class GraphDialog(QDialog):
             'gain': self.gain_spin.value(),
             'fixedlevel': self.fixedlevel_spin.value()
         }
-        
+
 
 
         # Обновляем параметры в процессоре
         self.processor.update_params(new_params)
-        
+
         # Обновляем графики
         self.update_plots()
         self.update_frequency_forecast()
-    
+
     def update_frequency_forecast(self):
         """Обновление прогноза полосы частот для проверки"""
         sufficient_criterion = self.sufficient_criterion_spin.value()
         forecast = self.processor.calculate_frequency_forecast(
-            self.params['selected_channel'], 
+            self.params['selected_channel'],
             sufficient_criterion
         )
-        
+
         if forecast:
             lower_bound, upper_bound = forecast
             forecast_text = f"Прогноз полосы частот для проверки:\n"
@@ -325,37 +325,37 @@ class GraphDialog(QDialog):
             forecast_text += f"Центральная частота: {(lower_bound + upper_bound) / 2:.2f} Гц"
         else:
             forecast_text = "Прогноз не рассчитан. Убедитесь, что выбранный канал существует и параметры корректны."
-        
+
         self.forecast_display.setPlainText(forecast_text)
-    
+
     def update_plots(self):
         '''Обновление графиков с текущими параметрами'''
         # Очищаем графики
         self.ax1.clear()
         self.ax2.clear()
         self.ax3.clear()
-        
+
         # Получаем данные из процессора
         raw_data = self.processor.rawplot
         smoothed_data = self.processor.smoothedplot
         freq_response = self.processor.freqresponse_linear
-        
+
         # Определяем анализируемый отрезок времени
         cut_second = self.cut_second_spin.value()
         record_time = self.record_time_spin.value()
-        
+
         # Строим исходные графики
         y_min, y_max = float('inf'), float('-inf')
         for channel_name, data in raw_data.items():
             if channel_name in self.channels:  # Отображаем только выбранные каналы
                 self.ax1.plot(data['time'], data['amplitude'], label=channel_name)
-                
+
                 # Определяем min/max амплитуды для отрисовки строба
                 channel_min = self.processor.raw_min_amp[channel_name]
                 channel_max = self.processor.raw_max_amp[channel_name]
                 y_min = min(y_min, channel_min)
                 y_max = max(y_max, channel_max)
-        
+
         # Добавляем строб (прямоугольник выделения анализируемого отрезка)
         if y_min != float('inf') and y_max != float('-inf'):
             start_time = self.processor.analysis_start_time
@@ -363,60 +363,60 @@ class GraphDialog(QDialog):
                             linewidth=1, edgecolor='r', facecolor='r', alpha=0.2)
             self.ax1.add_patch(rect)
 
-            self.ax1.axvline(x=start_time, ymin=y_min, ymax=y_max, 
+            self.ax1.axvline(x=start_time, ymin=y_min, ymax=y_max,
                      color='r', linewidth=1, zorder=5)
 
             # Добавляем запись в легенду
             self.ax1.plot([], [], color='r', alpha=0.2, linewidth=10, label='Анализируемый отрезок')
-        
+
         # Строим сглаженные графики
         for channel_name, data in smoothed_data.items():
             if channel_name in self.channels:  # Отображаем только выбранные каналы
                 self.ax2.plot(data['time'], data['smoothed_amplitude'], label=channel_name)
-        
+
         # Строим АЧХ только для выбранного канала (линейная шкала с усилением)
         if self.params['selected_channel'] in freq_response:
             data = freq_response[self.params['selected_channel']]
             self.ax3.plot(data['freq'], data['amplitude'], label=self.params['selected_channel'], color='red')
-            
+
             # Добавляем маркеры для важных точек
             params = self.processor.channel_parameters.get(self.params['selected_channel'], {})
             if params:
                 # Резонансная частота
-                self.ax3.axvline(x=params['resonance_frequency'], color='green', linestyle='--', 
+                self.ax3.axvline(x=params['resonance_frequency'], color='green', linestyle='--',
                                 label=f'Резонанс: {params["resonance_frequency"]:.2f} Гц')
-                
+
                 # Уровень 0.707
-                self.ax3.axhline(y=params['max_amplitude'] * 0.707, color='blue', linestyle='--', 
+                self.ax3.axhline(y=params['max_amplitude'] * 0.707, color='blue', linestyle='--',
                                 label='Уровень 0.707')
-                
+
                 # Уровень fixedlevel
                 fixedlevel = self.fixedlevel_spin.value()
-                self.ax3.axhline(y=fixedlevel, color='orange', linestyle='--', 
+                self.ax3.axhline(y=fixedlevel, color='orange', linestyle='--',
                                 label=f'Уровень {fixedlevel:.2f}')
-        
+
         # Настраиваем графики с улучшенными легендами
         self.ax1.set_title("Исходные сигналы")
         self.ax1.set_xlabel("Время (с)")
         self.ax1.set_ylabel("Амплитуда (В)")
         self.ax1.legend(loc='upper right', fontsize='small')
         self.ax1.grid(True)
-        
+
         self.ax2.set_title("Сглаженные сигналы")
         self.ax2.set_xlabel("Время (с)")
         self.ax2.set_ylabel("Амплитуда (В)")
         self.ax2.legend(loc='upper right', fontsize='small')
         self.ax2.grid(True)
-        
+
         self.ax3.set_title("АЧХ (линейная шкала с усилением)")
         self.ax3.set_xlabel("Частота (Гц)")
         self.ax3.set_ylabel("Амплитуда сигнала")
         self.ax3.legend(loc='upper right', fontsize='small')
         self.ax3.grid(True)
-        
+
         # Обновляем отображение параметров
         self.update_parameters_display()
-        
+
         # Обновляем canvas
         self.figure.tight_layout(pad=3.0)
         self.canvas.draw()
@@ -427,10 +427,10 @@ class GraphDialog(QDialog):
         if not params:
             self.params_display.setPlainText("Параметры не рассчитаны")
             return
-        
+
         # Получаем текущие значения параметров из spin-боксов
         fixedlevel = self.fixedlevel_spin.value()
-        
+
         text = f"Параметры канала {self.params['selected_channel']}:\n\n"
         text += f"Максимальная амплитуда: {(params['max_amplitude']*2):.4f} В\n" #NOTE : тут надо быть крайне аккуратным, т.к. с физической точки зрения мы ничего не сделали, а только умножили на 2 значение выводимое пользователю
         text += f"Резонансная частота: {params['resonance_frequency']:.2f} Гц\n"
@@ -439,15 +439,15 @@ class GraphDialog(QDialog):
         text += f"Ширина полосы (уровень {fixedlevel:.2f}): {params['bandwidth_fixed']:.2f} Гц\n"
         text += f"  (от {params['bandwidth_fixed_range'][0]:.2f} до {params['bandwidth_fixed_range'][1]:.2f} Гц)\n"
         text += f"Добротность: {params['q_factor']:.2f}"
-        
+
         self.params_display.setPlainText(text)
-    
+
     def hideEvent(self, event):
         """Скрытие метки координат при скрытии диалога"""
         if hasattr(self, 'toolbar') and self.toolbar.coord_label:
             self.toolbar.coord_label.hide()
         super().hideEvent(event)
-        
+
     def closeEvent(self, event):
         """Скрытие метки координат при закрытии диалога"""
         if hasattr(self, 'toolbar') and self.toolbar.coord_label:

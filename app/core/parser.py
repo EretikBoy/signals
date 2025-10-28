@@ -46,7 +46,7 @@ class Channel:
 
     def __repr__(self):
         return f'Канал {self.name}, размер массива {len(self.data)}'
-            
+
 
 
 class DataParser:
@@ -61,7 +61,7 @@ class DataParser:
         Args:
             file_path: путь к файлу
             file_type: тип файла ('xlsx/xls', 'csv', 'txt')
-        
+
         Returns:
             bool: успешность парсинга
         '''
@@ -72,11 +72,11 @@ class DataParser:
                 return self._parse_excel(file_path)
             else:
                 raise ValueError(f'Неподдерживаемый формат файла: {file_type}')
-            
+
         except Exception as e:
             print(f'Функция чтения файла не работает')
             return False
-        
+
     def _parse_excel(self, file_path: str) -> bool:
         '''Парсинг Excel файла с данными осциллографа'''
         try:
@@ -101,13 +101,13 @@ class DataParser:
                     channel = self._parse_excel_channel(xlsx, channel_info)
                     if channel:
                         self.channels[channel.name] = channel
-                
-                return len(self.channels) > 0 
+
+                return len(self.channels) > 0
         except Exception as e:
             print(f"Ошибка парсинга Excel файла: {e}")
             return False
 
-    
+
     def _parse_excel_channel(self, xlsx: pd.ExcelFile, channel_info: Dict[str, str]) -> Optional[Channel]:
         try:
             metadata_df = pd.read_excel(
@@ -146,41 +146,41 @@ class DataParser:
             #Используем контекстный менеджер для чтения CSV
             with open(file_path, 'r', encoding='utf-8') as file:
                 df = pd.read_csv(file, header=None)
-            
+
             # Остальной код без изменений
             metadata_ch1 = df.iloc[:16, 0:3].dropna(how='all').T
             metadata_ch2 = df.iloc[:16, 6:9].dropna(how='all').T
             data = df.iloc[:, [3, 4, 9, 10]]
-            
+
             # Преобразование метаданных в словари
             metadata_dict_ch1 = dict(zip(metadata_ch1.iloc[0], metadata_ch1.iloc[1]))
             metadata_dict_ch2 = dict(zip(metadata_ch2.iloc[0], metadata_ch2.iloc[1]))
-            
+
             # Создание и настройка каналов
             channel1 = Channel(metadata_dict_ch1['Source'])
             channel1.set_data(data.iloc[:, 0], data.iloc[:, 1])
             channel1.set_metadata_from_dict(metadata_dict_ch1)
-            
+
             channel2 = Channel(metadata_dict_ch2['Source'])
             channel2.set_data(data.iloc[:, 2], data.iloc[:, 3])
             channel2.set_metadata_from_dict(metadata_dict_ch2)
-            
+
             self.channels[channel1.name] = channel1
             self.channels[channel2.name] = channel2
-            
+
             return True
-            
+
         except Exception as e:
             print(f"Ошибка парсинга CSV файла: {e}")
             return False
-    
+
     def get_channel_names(self) -> List[str]:
         '''Получение списка имен каналов'''
         return list(self.channels.keys())
-    
+
     def get_channel(self, channel_name: str) -> Optional[Channel]:
         '''Получение канала по имени'''
-        return self.channels.get(channel_name)   
+        return self.channels.get(channel_name)
 
 
 if __name__ == '__main__':
@@ -196,4 +196,3 @@ if __name__ == '__main__':
         if channel:
             print(channel.data)
             print(channel.metadata)
-            

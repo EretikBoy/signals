@@ -1,7 +1,7 @@
 #gui/window.py
 import os
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QLabel, QMessageBox, 
+    QMainWindow, QWidget, QVBoxLayout, QLabel, QMessageBox,
     QHBoxLayout, QPushButton, QTreeWidget
 )
 from PyQt6.QtCore import QEvent, Qt
@@ -18,83 +18,87 @@ logger = logging.getLogger(__name__)
 
 class MainWindow(QMainWindow):
     """Главное окно приложения с древовидной таблицей предметов и анализов"""
-    
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle('Анализатор каналов осциллографа')
         self.setGeometry(100, 100, 1400, 800)
-        
+
         # Инициализация менеджеров
         self.data_manager = DataManager()
         self.worker_manager = WorkerManager()
-        
+
         # Создаем центральный виджет
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        
+
         # Инициализация UI компонентов
         self.setup_tree_section(main_layout)
         self.setup_instruments_section(main_layout)
-        
+
         # Устанавливаем обработчик клавиш
         self.installEventFilter(self)
-        
+
         # Запускаем обнаружение приборов
         self.instrument_manager.start_instrument_detection()
-    
+
     def setup_tree_section(self, main_layout):
         """Настройка секции древовидной таблицы"""
         title_label = QLabel('Структура предметов и анализов')
         title_label.setStyleSheet('font-size: 16px; font-weight: bold;')
         main_layout.addWidget(title_label)
-        
+
         # Создаем древовидную таблицу
         tree_widget = QTreeWidget()
         self.tree_manager = TreeManager(tree_widget)
-        
+
         # Создаем кнопки управления
         self.setup_tree_buttons(main_layout)
-        
+
         main_layout.addWidget(tree_widget)
-        
+
         # Подключаем сигналы дерева
         self.connect_tree_signals()
-        
+
         # Добавляем начальный предмет
         self.tree_manager.add_subject("AN1")
-    
+
     def setup_tree_buttons(self, main_layout):
         """Создание кнопок управления древовидной таблицей"""
         tree_button_layout = QHBoxLayout()
-        
+
         add_subject_button = QPushButton('Добавить предмет')
         add_subject_button.clicked.connect(self.add_subject)
-        
+
         load_files_button = QPushButton('Добавить файлы в текущий предмет')
         load_files_button.clicked.connect(self.tree_manager.load_files_to_current_subject)
-        
+
         save_all_button = QPushButton('Сохранить всю таблицу')
         save_all_button.clicked.connect(self.save_all_analysis)
-        
+
         save_selected_button = QPushButton('Сохранить выбранные анализы')
         save_selected_button.clicked.connect(self.save_selected_analysis)
-        
+
         load_analysis_button = QPushButton('Загрузить анализ')
         load_analysis_button.clicked.connect(self.load_analysis)
-        
+
+        # Новая кнопка для настройки столбцов
+        configure_columns_button = QPushButton('Настроить столбцы')
+        configure_columns_button.clicked.connect(self.tree_manager.show_column_config_dialog)
+
         tree_button_layout.addWidget(add_subject_button)
         tree_button_layout.addWidget(load_files_button)
         tree_button_layout.addWidget(save_all_button)
         tree_button_layout.addWidget(save_selected_button)
         tree_button_layout.addWidget(load_analysis_button)
-
+        tree_button_layout.addWidget(configure_columns_button)  # Добавляем новую кнопку
 
         summary_button = QPushButton('Экспорт сводных данных')
         summary_button.clicked.connect(self.show_summary_dialog)
-        
+
         tree_button_layout.addWidget(summary_button)
-        
+
         main_layout.addLayout(tree_button_layout)
 
     def setup_instruments_section(self, main_layout):
@@ -102,10 +106,10 @@ class MainWindow(QMainWindow):
         self.instrument_manager = InstrumentManager()
         instruments_group = self.instrument_manager.create_instruments_group()
         main_layout.addWidget(instruments_group)
-        
+
         # Подключаем сигналы приборов
         self.connect_instrument_signals()
-    
+
     def connect_tree_signals(self):
         """Подключение сигналов древовидной таблицы"""
         self.tree_manager.file_loaded.connect(self.on_file_loaded)
@@ -113,7 +117,7 @@ class MainWindow(QMainWindow):
         self.tree_manager.analysis_added.connect(self.on_analysis_added)
         self.tree_manager.item_selected.connect(self.on_item_selected)
         self.tree_manager.analysis_moved.connect(self.on_analysis_moved)
-    
+
     def connect_instrument_signals(self):
         """Подключение сигналов приборов"""
         # Сигналы от instrument_manager
@@ -121,7 +125,7 @@ class MainWindow(QMainWindow):
         self.instrument_manager.measurement_stopped.connect(self.on_measurement_stopped)
         self.instrument_manager.oscilloscope_read_requested.connect(self.on_oscilloscope_read_requested)
         self.instrument_manager.log_message.connect(self.on_log_message)
-        
+
         # Сигналы от worker_manager
         self.worker_manager.progress_updated.connect(self.instrument_manager.update_progress)
         self.worker_manager.log_message.connect(self.on_log_message)
@@ -131,11 +135,11 @@ class MainWindow(QMainWindow):
         self.worker_manager.oscilloscope_data_error.connect(self.on_oscilloscope_data_error)
         self.worker_manager.instruments_detected.connect(self.instrument_manager.on_instruments_detected)
         self.worker_manager.instruments_detection_error.connect(self.instrument_manager.on_detection_error)
-    
+
     def add_subject(self):
         """Добавление нового предмета"""
         self.tree_manager.add_subject()
-    
+
     def on_file_loaded(self, subject_code, file_path):
         """Обработка загрузки файла"""
         # Создаем новый анализ в дереве
@@ -147,11 +151,11 @@ class MainWindow(QMainWindow):
                 'record_time': 0
             }
         })
-        
+
         if analysis_index is not None:
             # Парсим файл
             success, result = self.data_manager.parse_file(subject_code, file_path, analysis_index)
-            
+
             if success:
                 if isinstance(result, str) and 'вручную' in result:
                     # Файл загружен, но нужна ручная настройка параметров
@@ -159,37 +163,43 @@ class MainWindow(QMainWindow):
                 else:
                     # Успешная загрузка
                     file_name = result
-                    self.tree_manager.update_analysis_display(subject_code, analysis_index, True, file_name)
-                    
-                    # Обновляем параметры в дереве
+
+                    # Получаем данные анализа чтобы получить процессор
                     analysis_data = self.data_manager.get_analysis_data(subject_code, analysis_index)
+                    processor = analysis_data.get('processor') if analysis_data else None
+
+                    # ОБНОВЛЯЕМ анализ с процессором и РЕАЛЬНЫМ именем файла
+                    self.tree_manager.update_analysis_display(
+                        subject_code, analysis_index, True, file_name,
+                        message=None, processor=processor
+                    )
+
+                    # Обновляем параметры в дереве
                     if analysis_data:
                         self.tree_manager.update_analysis_params(subject_code, analysis_index, analysis_data['params'])
-
-
             else:
                 # Ошибка загрузки
                 self.tree_manager.update_analysis_display(subject_code, analysis_index, False, None, result)
-    
+
     def on_subject_added(self, subject_code):
         """Обработка добавления нового предмета"""
         self.data_manager.initialize_subject(subject_code)
-    
+
     def on_analysis_added(self, subject_code, analysis_index):
         """Обработка добавления нового анализа"""
-        # Автоматически инициализируется в data_manager при загрузке файла  
+        # Автоматически инициализируется в data_manager при загрузке файла
 
 
     def on_item_selected(self, subject_code, analysis_index):
         """Обработка выбора элемента (открытие графика)"""
         if analysis_index == -1:
             return  # Выбран предмет, а не анализ
-        
+
         analysis_data = self.data_manager.get_analysis_data(subject_code, analysis_index)
         if not analysis_data:
             QMessageBox.warning(self, 'Ошибка', 'Данные анализа не найдены')
             return
-        
+
         logger.debug("=== ПРОВЕРКА ДАННЫХ ПЕРЕД ОТКРЫТИЕМ ГРАФИКА ===")
         has_valid_data = False
         for channel_name, channel in analysis_data['channels'].items():
@@ -205,50 +215,63 @@ class MainWindow(QMainWindow):
             dialog.raise_()
             dialog.activateWindow()
             return
-        
-        
+
+
         # Создаем диалог
         dialog = GraphDialog(
-            analysis_data['channels'], 
-            analysis_data['params'], 
-            analysis_data['processor'], 
-            analysis_data['file_name'], 
+            analysis_data['channels'],
+            analysis_data['params'],
+            analysis_data['processor'],
+            analysis_data['file_name'],
             self
         )
-        
+
         # Регистрируем диалог
         self.data_manager.register_dialog(subject_code, analysis_index, dialog)
-        
+
         # Подключаем сигнал закрытия
         dialog.finished.connect(lambda: self.on_graph_dialog_closed(subject_code, analysis_index))
-        
+
         dialog.show()
-    
+
     def on_graph_dialog_closed(self, subject_code, analysis_index):
         """Обработка закрытия диалога с графиками"""
         key = (subject_code, analysis_index)
         if key in self.data_manager.open_dialogs:
             dialog = self.data_manager.open_dialogs[key]
-            
+
             # Обновляем параметры
             self.data_manager.update_analysis_params(subject_code, analysis_index, dialog.params)
             self.tree_manager.update_analysis_params(subject_code, analysis_index, dialog.params)
-            
+
+            # Обновляем динамические столбцы с новыми параметрами
+            analysis_data = self.data_manager.get_analysis_data(subject_code, analysis_index)
+            if analysis_data and analysis_data.get('processor'):
+                # Обновляем параметры в процессоре
+                analysis_data['processor'].update_params(dialog.params)
+
+                # ИСПРАВЛЕНО: используем fill_analysis_data для полного обновления
+                analysis_item = self.tree_manager.get_analysis_item(subject_code, analysis_index)
+                if analysis_item:
+                    # ПЕРЕДАЕМ ОБНОВЛЕННЫЙ ПРОЦЕССОР для гарантии
+                    self.tree_manager.fill_analysis_data(analysis_item, dialog.params, analysis_data['processor'])
+
             # Удаляем диалог из регистрации
             self.data_manager.unregister_dialog(subject_code, analysis_index)
-            # АВТОСОХРАНЕНИЕ ПОСЛЕ закрытия диалога, предполагаем, что пользователь сделал много важного
+            # АВТОСОХРАНЕНИЕ
             self.auto_save()
-    
+
+
     def on_analysis_moved(self, old_subject, new_subject, analysis_index):
         """Обработка перемещения анализа между предметами"""
         self.data_manager.move_analysis_data(old_subject, new_subject, analysis_index)
-    
+
     def on_measurement_started(self, params):
         """Обработка начала измерения"""
         instruments = self.instrument_manager.get_selected_instruments()
         if not instruments:
             return
-        
+
         # Запускаем измерение через worker_manager
         self.worker_manager.start_measurement(
             instruments['generator']['resource'],
@@ -257,10 +280,10 @@ class MainWindow(QMainWindow):
             instruments['oscilloscope']['type'],
             params
         )
-        
+
         # Обновляем UI
         self.instrument_manager.set_measurement_state(True)
-    
+
     def on_measurement_stopped(self):
         """Обработка остановки измерения"""
         if self.worker_manager.stop_measurement():
@@ -268,192 +291,215 @@ class MainWindow(QMainWindow):
         # Сразу разблокируем интерфейс
         self.instrument_manager.set_measurement_state(False)
         self.instrument_manager.update_progress(0)
-    
+
     def on_measurement_finished(self, channels_data):
         """Обработка завершения измерения"""
         self.instrument_manager.set_measurement_state(False)
         self.on_log_message("Измерение успешно завершено")
-        
+
         # Получаем параметры измерения
         measurement_params = self.instrument_manager.get_measurement_params() or {}
-        
+
         # Получаем текущий выбранный предмет или создаем новый
         current_subject = self.tree_manager.get_selected_subject()
         if not current_subject:
             current_subject = self.tree_manager.add_subject()
             logger.debug(f"Создан новый предмет для измерения: {current_subject}")
-        
-        # Добавляем данные в таблицу - ИСПРАВЛЕННАЯ СТРОКА
+
+        # Добавляем данные в таблицу
         success, subject_code, analysis_index, result = self.data_manager.save_measurement_data(
             channels_data, measurement_params, current_subject
         )
-        
+
         if success:
             logger.debug(f"Данные измерения сохранены: {subject_code}, {analysis_index}")
-            
-            # Добавляем анализ в дерево - ИСПРАВЛЕННАЯ СТРОКА
+
+            # Получаем процессор из data_manager
+            analysis_data = self.data_manager.get_analysis_data(subject_code, analysis_index)
+            processor = analysis_data.get('processor') if analysis_data else None
+
+            # Добавляем анализ в дерево с процессором
             added_index = self.tree_manager.add_analysis_to_subject(subject_code, {
                 'file_name': result,
-                'params': measurement_params  # используем measurement_params вместо повторного вызова
-            }, analysis_index)
-            
+                'params': measurement_params
+            }, analysis_index, processor=processor)
+
             logger.debug(f"Анализ добавлен в дерево: {subject_code}, индекс: {added_index}")
-            
-            # Обновляем отображение
-            self.tree_manager.update_analysis_display(subject_code, analysis_index, True, result)
-            self.tree_manager.update_analysis_params(subject_code, analysis_index, measurement_params)
-        else:
-            logger.error(f"Ошибка сохранения измерения: {result}")
-            self.on_log_message(result)
-        
-    def on_measurement_error(self, error_message):
-        """Обработка ошибки измерения"""
-        self.instrument_manager.set_measurement_state(False)
-        self.on_log_message(f"Ошибка измерения: {error_message}")
-    
-    def on_oscilloscope_read_requested(self):
-        """Обработка запроса на чтение данных с осциллографа"""
-        oscilloscope = self.instrument_manager.get_selected_oscilloscope()
-        if not oscilloscope:
-            return
-        
-        # Запускаем чтение данных
-        self.worker_manager.start_oscilloscope_reading(
-            oscilloscope['resource'],
-            oscilloscope['type']
-        )
-        
-        # Обновляем UI
-        self.instrument_manager.set_reading_state(True)
-    
-    def on_oscilloscope_data_ready(self, channels_data):
-        """Обработка данных с осциллографа"""
-        self.instrument_manager.set_reading_state(False)
-        self.on_log_message("Данные с осциллографа успешно получены")
-        
-        # Получаем параметры измерения
-        measurement_params = self.instrument_manager.get_measurement_params() or {}
-        
-        # Получаем текущий выбранный предмет или создаем новый
-        current_subject = self.tree_manager.get_selected_subject()
-        if not current_subject:
-            current_subject = self.tree_manager.add_subject()
-            logger.debug(f"Создан новый предмет для данных осциллографа: {current_subject}")
-        
-        # Добавляем данные в таблицу - ИСПРАВЛЕННАЯ СТРОКА
-        success, subject_code, analysis_index, result = self.data_manager.save_measurement_data(
-            channels_data, 
-            measurement_params,  # используем measurement_params
-            current_subject
-        )
-        
-        if success:
-            logger.debug(f"Данные осциллографа сохранены: {subject_code}, {analysis_index}")
-            
-            # Добавляем анализ в дерево - ИСПРАВЛЕННАЯ СТРОКА
-            added_index = self.tree_manager.add_analysis_to_subject(subject_code, {
-                'file_name': result,
-                'params': measurement_params  # используем measurement_params
-            }, analysis_index)
-            
-            logger.debug(f"Анализ осциллографа добавлен в дерево: {subject_code}, индекс: {added_index}")
-            
-            # Обновляем отображение
-            self.tree_manager.update_analysis_display(subject_code, analysis_index, True, result)
+
+            # Обновляем отображение с процессором
+            self.tree_manager.update_analysis_display(
+                subject_code, analysis_index, True, result,
+                message=None, processor=processor
+            )
             self.tree_manager.update_analysis_params(subject_code, analysis_index, measurement_params)
 
             # АВТОСОХРАНЕНИЕ ПОСЛЕ УСПЕШНОГО ИЗМЕРЕНИЯ
             self.auto_save()
         else:
+            logger.error(f"Ошибка сохранения измерения: {result}")
+            self.on_log_message(result)
+
+    def on_measurement_error(self, error_message):
+        """Обработка ошибки измерения"""
+        self.instrument_manager.set_measurement_state(False)
+        self.on_log_message(f"Ошибка измерения: {error_message}")
+
+    def on_oscilloscope_read_requested(self):
+        """Обработка запроса на чтение данных с осциллографа"""
+        oscilloscope = self.instrument_manager.get_selected_oscilloscope()
+        if not oscilloscope:
+            return
+
+        # Запускаем чтение данных
+        self.worker_manager.start_oscilloscope_reading(
+            oscilloscope['resource'],
+            oscilloscope['type']
+        )
+
+        # Обновляем UI
+        self.instrument_manager.set_reading_state(True)
+
+    def on_oscilloscope_data_ready(self, channels_data):
+        """Обработка данных с осциллографа"""
+        self.instrument_manager.set_reading_state(False)
+        self.on_log_message("Данные с осциллографа успешно получены")
+
+        # Получаем параметры измерения
+        measurement_params = self.instrument_manager.get_measurement_params() or {}
+
+        # Получаем текущий выбранный предмет или создаем новый
+        current_subject = self.tree_manager.get_selected_subject()
+        if not current_subject:
+            current_subject = self.tree_manager.add_subject()
+            logger.debug(f"Создан новый предмет для данных осциллографа: {current_subject}")
+
+        # Добавляем данные в таблицу
+        success, subject_code, analysis_index, result = self.data_manager.save_measurement_data(
+            channels_data,
+            measurement_params,
+            current_subject
+        )
+
+        if success:
+            logger.debug(f"Данные осциллографа сохранены: {subject_code}, {analysis_index}")
+
+            # Получаем процессор из data_manager
+            analysis_data = self.data_manager.get_analysis_data(subject_code, analysis_index)
+            processor = analysis_data.get('processor') if analysis_data else None
+
+            # Добавляем анализ в дерево с процессором
+            added_index = self.tree_manager.add_analysis_to_subject(subject_code, {
+                'file_name': result,
+                'params': measurement_params
+            }, analysis_index, processor=processor)
+
+            logger.debug(f"Анализ осциллографа добавлен в дерево: {subject_code}, индекс: {added_index}")
+
+            # Обновляем отображение с процессором
+            self.tree_manager.update_analysis_display(
+                subject_code, analysis_index, True, result,
+                message=None, processor=processor
+            )
+            self.tree_manager.update_analysis_params(subject_code, analysis_index, measurement_params)
+
+            # АВТОСОХРАНЕНИЕ
+            self.auto_save()
+        else:
             logger.error(f"Ошибка сохранения данных осциллографа: {result}")
             self.on_log_message(result)
-    
+
     def on_oscilloscope_data_error(self, error_message):
         """Обработка ошибки чтения данных с осциллографа"""
         self.instrument_manager.set_reading_state(False)
         self.on_log_message(f"Ошибка чтения данных: {error_message}")
-    
+
     def on_log_message(self, message):
         """Обработка сообщения для лога"""
         self.instrument_manager.log(message)
-    
+
     def save_all_analysis(self):
         """Сохранение всей таблицы"""
         self.data_manager.save_analysis(self.tree_manager, save_selected_only=False, parent=self)
-    
+
     def save_selected_analysis(self):
         """Сохранение только выбранных анализов"""
         self.data_manager.save_analysis(self.tree_manager, save_selected_only=True, parent=self)
-    
+
     def load_analysis(self):
         """Загрузка анализа"""
         loaded_data = self.data_manager.load_analysis(self)
         if not loaded_data:
             return
-        
+
         # Очищаем дерево перед загрузкой
         self.tree_manager.clear_tree()
-        
+
         # Загружаем предметы и анализы
         for item in loaded_data:
-            
             subject_code = item['subject_code']
             subject_name = item['subject_name']
-            analysis_index = item['analysis_index']  # Индекс из DataManager
+            analysis_index = item['analysis_index']
             analysis_info = item['analysis_info']
             file_exists = item['file_exists']
-            
+            processor = item.get('processor')  # Получаем процессор из загруженных данных
+
             logger.debug(f"Загрузка анализа: {subject_code}, {analysis_index}, {subject_name}")
-            
+
             # Добавляем предмет, если его нет
             if subject_code not in self.tree_manager.subject_items:
                 self.tree_manager.add_subject(subject_code)
                 logger.debug(f"Добавлен предмет: {subject_code} с именем {subject_name}")
-            
-            # Добавляем анализ с ПРАВИЛЬНЫМ индексом из DataManager
+
+            # Добавляем анализ с процессором
             added_index = self.tree_manager.add_analysis_to_subject(subject_code, {
                 'file_name': analysis_info['file_name'],
                 'params': analysis_info['params']
-            }, analysis_index)  # Явно передаем индекс
-            
+            }, analysis_index, processor=processor)
+
             logger.debug(f"Анализ добавлен: {subject_code}, запрошенный индекс: {analysis_index}, фактический: {added_index}")
-            
+
             self.tree_manager.set_subject_name(subject_code, subject_name)
 
-            # Обновляем отображение
+            # Обновляем отображение с процессором
             if file_exists:
-                self.tree_manager.update_analysis_display(subject_code, added_index, True, analysis_info['file_name'])
+                self.tree_manager.update_analysis_display(
+                    subject_code, added_index, True, analysis_info['file_name'],
+                    processor=processor
+                )
             else:
-                self.tree_manager.update_analysis_display(subject_code, added_index, False, 
-                                                        analysis_info['file_name'], "Файл не найден")
-            
+                self.tree_manager.update_analysis_display(
+                    subject_code, added_index, False,
+                    analysis_info['file_name'], "Файл не найден",
+                    processor=processor
+                )
+
             self.tree_manager.update_analysis_params(subject_code, added_index, analysis_info['params'])
-    
+
     def eventFilter(self, obj, event):
         """Обработка событий"""
         if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Delete:
             # Обработка удаления через Delete key
             current_subject = self.tree_manager.get_selected_subject()
             current_analysis = self.tree_manager.get_selected_analysis_index()
-            
+
             if current_analysis != -1:
                 self.tree_manager.delete_current_analysis()
             elif current_subject:
                 self.tree_manager.delete_current_subject()
-            
+
             return True
         return super().eventFilter(obj, event)
-                
-    
+
+
     def closeEvent(self, event):
         """Обработка закрытия приложения"""
         # Останавливаем все потоки
         self.worker_manager.wait_for_all()
-        
+
         # Закрываем все открытые диалоги
         for dialog in self.data_manager.open_dialogs.values():
             dialog.close()
-        
+
         event.accept()
 
     def setup_tree_section(self, main_layout):
@@ -461,29 +507,29 @@ class MainWindow(QMainWindow):
         title_label = QLabel('Структура предметов и анализов')
         title_label.setStyleSheet('font-size: 16px; font-weight: bold;')
         main_layout.addWidget(title_label)
-        
+
         # TreeManager теперь сам создает TreeWidget
         self.tree_manager = TreeManager()
-        
+
         # Создаем кнопки управления
         self.setup_tree_buttons(main_layout)
-        
+
         main_layout.addWidget(self.tree_manager.tree)
-        
+
         # Подключаем сигналы дерева
         self.connect_tree_signals()
-        
+
         # Добавляем начальный предмет
         self.tree_manager.add_subject("AN1")
 
     def on_analysis_moved(self, old_subject, new_subject, analysis_index):
         """Обработка перемещения анализа между предметами"""
         logger.debug(f"MainWindow: обработка перемещения {old_subject} -> {new_subject}, {analysis_index}")
-        
+
         success = self.data_manager.move_analysis_data(old_subject, new_subject, analysis_index)
         if success:
             self.on_log_message(f"Анализ перемещен из {old_subject} в {new_subject}")
-            
+
             # Обновляем отображение в дереве
             analysis_data = self.data_manager.get_analysis_data(new_subject, analysis_index)
             if analysis_data:
@@ -503,13 +549,13 @@ class MainWindow(QMainWindow):
             # Проверяем, есть ли выбранные анализы
             selected_analyses = self.tree_manager.get_selected_analyses()
             if not selected_analyses:
-                QMessageBox.information(self, 'Информация', 
+                QMessageBox.information(self, 'Информация',
                                     'Выберите анализы для построения сводного графика (используйте чекбоксы)')
                 return
-            
+
             dialog = SummaryDialog(self.data_manager, self.tree_manager, self)
             dialog.exec()
-            
+
         except Exception as e:
             logger.error(f"Ошибка при открытии диалога сводного графика: {str(e)}")
             QMessageBox.critical(self, 'Ошибка', f'Не удалось открыть диалог сводного графика: {str(e)}')
@@ -518,29 +564,29 @@ class MainWindow(QMainWindow):
         """Аварийное сохранение данных при ошибке"""
         try:
             logger.info("Выполняется аварийное сохранение...")
-            
+
             # Создаем папку для резервных копий
             backup_dir = os.path.join(os.path.dirname(__file__), '..', 'emergency_backups')
             os.makedirs(backup_dir, exist_ok=True)
-            
+
             # Генерируем имя файла с временной меткой
             backup_file = os.path.join(backup_dir, f'emergency_backup.analysis')
-            
+
             # Используем существующий метод сохранения
             success = self.data_manager.save_analysis(
-                self.tree_manager, 
-                save_selected_only=False, 
+                self.tree_manager,
+                save_selected_only=False,
                 parent=None,
                 auto_save=True    # Не показываем диалоги при аварийном сохранении
             )
-            
+
             if success:
                 logger.info(f"Аварийная копия сохранена: {backup_file}")
             else:
                 logger.error("Не удалось выполнить аварийное сохранение")
-                
+
             return success
-            
+
         except Exception as e:
             logger.error(f"Ошибка при аварийном сохранении: {str(e)}")
             return False
@@ -564,32 +610,32 @@ class MainWindow(QMainWindow):
                 self,
                 'Подтверждение выхода',
                 'Сохранить данные перед выходом?',
-                QMessageBox.StandardButton.Yes | 
-                QMessageBox.StandardButton.No | 
+                QMessageBox.StandardButton.Yes |
+                QMessageBox.StandardButton.No |
                 QMessageBox.StandardButton.Cancel,
                 QMessageBox.StandardButton.Yes
             )
-            
+
             if reply == QMessageBox.StandardButton.Cancel:
                 event.ignore()
                 return
             elif reply == QMessageBox.StandardButton.Yes:
                 # Используем существующий метод сохранения
                 self.save_all_analysis()
-            
+
             # Останавливаем все потоки
             self.worker_manager.stop_measurement()
             self.worker_manager.wait_for_all()
-            
+
             # Закрываем все открытые диалоги
             for dialog in self.data_manager.open_dialogs.values():
                 try:
                     dialog.close()
                 except:
                     pass
-                    
+
             event.accept()
-            
+
         except Exception as e:
             logger.error(f"Ошибка при закрытии приложения: {str(e)}")
             # Все равно закрываем приложение
