@@ -101,3 +101,23 @@ class WorkerManager(QObject):
 
         for thread in threads:
             thread.wait(timeout)
+
+    def start_single_shot_measurement(self, oscilloscope_resource, oscilloscope_type):
+        """Запуск одиночного измерения с осциллографа"""
+        if self.current_worker and self.current_worker.isRunning():
+            self.log_message.emit("Предыдущее измерение еще выполняется")
+            return
+
+        self.current_worker = OscilloscopeSingleShotThread(
+            oscilloscope_resource,
+            oscilloscope_type
+        )
+        
+        self.connect_worker_signals(self.current_worker)
+        self.current_worker.start()
+        
+    def connect_worker_signals(self, worker):
+        """Подключение сигналов рабочего потока"""
+        worker.update_signal.connect(self.log_message)
+        worker.finished_signal.connect(self.on_oscilloscope_data_ready)
+        worker.error_signal.connect(self.on_oscilloscope_data_error)

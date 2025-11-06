@@ -45,79 +45,79 @@ class MainWindow(QMainWindow):
 
     def setup_tree_buttons(self, main_layout):
         """Компактная горизонтальная панель инструментов"""
-        
+
         buttons_layout = QHBoxLayout()
-        
+
         # Кнопки данных
         add_subject_btn = QPushButton('Добавить предмет')
         add_subject_btn.setToolTip('Добавить новый предмет')
         add_subject_btn.clicked.connect(self.add_subject)
-        
+
         load_files_btn = QPushButton('Добавить измерения')
         load_files_btn.setToolTip('Добавить файлы в активный предмет')
         load_files_btn.clicked.connect(self.tree_manager.load_files_to_current_subject)
-        
+
         load_analysis_btn = QPushButton('Загрузить анализ')
         load_analysis_btn.setToolTip('Загрузить анализ из файла')
         load_analysis_btn.clicked.connect(self.load_analysis)
-        
+
         # Кнопки сохранения
         save_all_btn = QPushButton('Сохранить всё')
         save_all_btn.setToolTip('Сохранить всю таблицу')
         save_all_btn.clicked.connect(self.save_all_analysis)
-        
+
         save_selected_btn = QPushButton('Сохранить выбранные')
         save_selected_btn.setToolTip('Сохранить только выбранные (те у которых стоит галочка) анализы')
         save_selected_btn.clicked.connect(self.save_selected_analysis)
-        
+
         # Кнопки настройки
         columns_btn = QPushButton('Настройки столбцов')
         columns_btn.setToolTip('Настроить отображаемые столбцы')
         columns_btn.clicked.connect(self.tree_manager.show_column_config_dialog)
-        
+
         filters_btn = QPushButton('Отключить фильтры')
         filters_btn.setToolTip('Очистить все фильтры')
         filters_btn.clicked.connect(self.tree_manager.clear_filters)
-        
+
         # Кнопки анализа
         summary_btn = QPushButton('📈 Сводка')
         summary_btn.setToolTip('Экспорт сводных данных')
         summary_btn.clicked.connect(self.show_summary_dialog)
-        
+
         # Добавляем кнопки с отступами
         buttons_layout.addWidget(add_subject_btn)
         buttons_layout.addWidget(load_files_btn)
         buttons_layout.addWidget(load_analysis_btn)
-        
+
         # Разделитель
         separator1 = QFrame()
         separator1.setFrameShape(QFrame.Shape.VLine)
         separator1.setFrameShadow(QFrame.Shadow.Sunken)
         buttons_layout.addWidget(separator1)
-        
+
         buttons_layout.addWidget(save_all_btn)
         buttons_layout.addWidget(save_selected_btn)
-        
+
         # Разделитель
         separator2 = QFrame()
         separator2.setFrameShape(QFrame.Shape.VLine)
         separator2.setFrameShadow(QFrame.Shadow.Sunken)
         buttons_layout.addWidget(separator2)
-        
+
         buttons_layout.addWidget(columns_btn)
         buttons_layout.addWidget(filters_btn)
-        
+
         # Разделитель
         separator3 = QFrame()
         separator3.setFrameShape(QFrame.Shape.VLine)
         separator3.setFrameShadow(QFrame.Shadow.Sunken)
         buttons_layout.addWidget(separator3)
-        
+
         buttons_layout.addWidget(summary_btn)
-        
+
         # Растягивающее пространство
         buttons_layout.addStretch()
-        
+
         main_layout.addLayout(buttons_layout)
 
     def setup_instruments_section(self, main_layout):
@@ -154,6 +154,9 @@ class MainWindow(QMainWindow):
         self.worker_manager.oscilloscope_data_error.connect(self.on_oscilloscope_data_error)
         self.worker_manager.instruments_detected.connect(self.instrument_manager.on_instruments_detected)
         self.worker_manager.instruments_detection_error.connect(self.instrument_manager.on_detection_error)
+        # Новый сигнал для периодического чтения
+        self.instrument_manager.periodic_read_requested.connect(self.on_periodic_read_requested)
+
 
     def add_subject(self):
         """Добавление нового предмета"""
@@ -374,12 +377,25 @@ class MainWindow(QMainWindow):
         self.instrument_manager.set_reading_state(True)
 
     def on_oscilloscope_data_ready(self, channels_data):
-        """Обработка данных с осциллографа"""
+        """Обработка данных с осциллографа (обновленная для поддержки временных меток)"""
         self.instrument_manager.set_reading_state(False)
-        self.on_log_message("Данные с осциллографа успешно получены")
+        
+        # Определяем, это периодическое измерение или обычное
+        is_periodic = self.instrument_manager.is_recording
+        
+        if is_periodic:
+            self.on_log_message("📊 Периодическое измерение завершено")
+        else:
+            self.on_log_message("Данные с осциллографа успешно получены")
 
         # Получаем параметры измерения
         measurement_params = self.instrument_manager.get_measurement_params() or {}
+        
+        # Добавляем временную метку для периодических измерений
+        if is_periodic:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%d/%m/%Y - %H:%M:%S")
+            measurement_params['timestamp'] = timestamp
 
         # Получаем текущий выбранный предмет или создаем новый
         current_subject = self.tree_manager.get_selected_subject()
@@ -401,9 +417,14 @@ class MainWindow(QMainWindow):
             analysis_data = self.data_manager.get_analysis_data(subject_code, analysis_index)
             processor = analysis_data.get('processor') if analysis_data else None
 
+            # Формируем имя файла с временной меткой для периодических измерений
+            file_name = result
+            if is_periodic:
+                file_name = f"Периодическое_{measurement_params['timestamp']}"
+
             # Добавляем анализ в дерево с процессором
             added_index = self.tree_manager.add_analysis_to_subject(subject_code, {
-                'file_name': result,
+                'file_name': file_name,
                 'params': measurement_params
             }, analysis_index, processor=processor)
 
@@ -411,7 +432,7 @@ class MainWindow(QMainWindow):
 
             # Обновляем отображение с процессором
             self.tree_manager.update_analysis_display(
-                subject_code, analysis_index, True, result,
+                subject_code, analysis_index, True, file_name,
                 message=None, processor=processor
             )
             self.tree_manager.update_analysis_params(subject_code, analysis_index, measurement_params)
@@ -421,6 +442,10 @@ class MainWindow(QMainWindow):
         else:
             logger.error(f"Ошибка сохранения данных осциллографа: {result}")
             self.on_log_message(result)
+            
+            # При ошибке останавливаем периодическую запись
+            if is_periodic:
+                self.instrument_manager.stop_periodic_recording()
 
     def on_oscilloscope_data_error(self, error_message):
         """Обработка ошибки чтения данных с осциллографа"""
@@ -603,6 +628,19 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Ошибка автосохранения: {str(e)}")
 
+
+    def on_periodic_read_requested(self):
+        """Обработка запроса на периодическое чтение данных"""
+        oscilloscope = self.instrument_manager.get_selected_oscilloscope()
+        if not oscilloscope:
+            self.instrument_manager.stop_periodic_recording()
+            return
+
+        # Запускаем одиночное измерение для периодической записи
+        self.worker_manager.start_single_shot_measurement(
+            oscilloscope['resource'],
+            oscilloscope['type'])
+    
 
     def closeEvent(self, event): # type: ignore
         """Обработка закрытия приложения с улучшенной обработкой ошибок"""

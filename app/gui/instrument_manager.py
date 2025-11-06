@@ -2,9 +2,10 @@
 from PyQt6.QtWidgets import (
     QGroupBox, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QPushButton, QComboBox, QLineEdit, QTextEdit, QProgressBar,
-    QFormLayout
+    QFormLayout, QCheckBox
 )
-from PyQt6.QtCore import pyqtSignal, QObject
+from PyQt6.QtCore import pyqtSignal, QObject, QTimer
+from PyQt6.QtGui import QFont
 
 from utils.constants import BUTTON_STYLE_MEASURE, BUTTON_STYLE_STOP, DEFAULT_PARAMS
 from core.instrumenthandler import InstrumentDetectorThread
@@ -19,12 +20,19 @@ class InstrumentManager(QObject):
     measurement_stopped = pyqtSignal()
     oscilloscope_read_requested = pyqtSignal()
     log_message = pyqtSignal(str)
+    # Новый сигнал для периодического чтения
+    periodic_read_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
         self.detected_instruments = {'oscilloscopes': [], 'generators': []}
         self.detection_thread = None
         self.last_measurement_data = None
+        
+        # Таймер для периодического опроса
+        self.periodic_timer = QTimer()
+        self.periodic_timer.timeout.connect(self.on_periodic_timer_timeout)
+        self.is_recording = False
 
         # UI элементы
         self.generator_combo = None
@@ -40,6 +48,10 @@ class InstrumentManager(QObject):
         self.read_oscilloscope_button = None
         self.progress_bar = None
         self.log_text = None
+        
+        # Новые UI элементы для периодической записи
+        self.record_button = None
+        self.poll_interval_edit = None
 
         self.setup_ui()
 
@@ -61,6 +73,12 @@ class InstrumentManager(QObject):
         self.measure_button = QPushButton("НАЧАТЬ ЗАПИСЬ")
         self.stop_button = QPushButton("ОСТАНОВИТЬ")
         self.read_oscilloscope_button = QPushButton("Прочитать данные с осциллографа")
+        
+        # Новые элементы для периодической записи
+        self.record_button = QPushButton("⚫ Запуск периодической записи")
+        self.record_button.setCheckable(True)  # Делаем кнопку переключаемой
+        self.poll_interval_edit = QLineEdit("5")  # Значение по умолчанию 5 секунд
+        self.poll_interval_edit.setToolTip("Период опроса в секундах")
 
         # Прогресс бар и лог
         self.progress_bar = QProgressBar()
@@ -75,6 +93,10 @@ class InstrumentManager(QObject):
         self.measure_button.clicked.connect(self.start_measurement)
         self.stop_button.clicked.connect(self.measurement_stopped.emit)
         self.read_oscilloscope_button.clicked.connect(self.oscilloscope_read_requested.emit)
+        
+        # Новые соединения для периодической записи
+        self.record_button.clicked.connect(self.toggle_periodic_recording)
+        self.poll_interval_edit.textChanged.connect(self.on_poll_interval_changed)
 
         self.start_freq_edit.textChanged.connect(self.update_generator_defaults)
         self.end_freq_edit.textChanged.connect(self.update_generator_defaults)
@@ -86,6 +108,29 @@ class InstrumentManager(QObject):
         self.stop_button.setStyleSheet(BUTTON_STYLE_STOP)
         self.log_text.setMaximumHeight(100)
         self.log_text.setReadOnly(True)
+        
+        # Стили для кнопки записи
+        self.record_button.setStyleSheet("""
+            QPushButton {
+                background-color: #2E8B57;
+                color: white;
+                font-weight: bold;
+                padding: 8px;
+                border: 2px solid #1E6B47;
+                border-radius: 5px;
+            }
+            QPushButton:checked {
+                background-color: #DC143C;
+                border: 2px solid #B22222;
+            }
+            QPushButton:hover {
+                background-color: #3CB371;
+            }
+            QPushButton:checked:hover {
+                background-color: #FF4500;
+            }
+        """)
+        self.record_button.setMinimumHeight(40)
 
     def create_instruments_group(self):
         """Создание группы управления приборами"""
@@ -153,6 +198,19 @@ class InstrumentManager(QObject):
 
         # Кнопка считывания данных
         oscilloscope_layout.addWidget(self.read_oscilloscope_button)
+        
+        # Секция периодической записи
+        recording_group = QGroupBox("Периодическая запись")
+        recording_layout = QFormLayout()
+        
+        # Поле периода опроса
+        recording_layout.addRow("Период опроса (сек):", self.poll_interval_edit)
+        
+        # Кнопка записи
+        recording_layout.addRow(self.record_button)
+        
+        recording_group.setLayout(recording_layout)
+        oscilloscope_layout.addWidget(recording_group)
 
         oscilloscope_group.setLayout(oscilloscope_layout)
         return oscilloscope_group
@@ -169,6 +227,86 @@ class InstrumentManager(QObject):
         control_group.setLayout(control_layout)
         return control_group
 
+    def toggle_periodic_recording(self):
+        """Переключение режима периодической записи"""
+        if self.record_button.isChecked():
+            self.start_periodic_recording()
+        else:
+            self.stop_periodic_recording()
+
+    def start_periodic_recording(self):
+        """Запуск периодической записи"""
+        try:
+            # Проверяем, выбран ли осциллограф
+            oscilloscope = self.get_selected_oscilloscope()
+            if not oscilloscope:
+                self.record_button.setChecked(False)
+                return
+
+            # Получаем период опроса
+            interval = self.get_poll_interval()
+            if interval <= 0:
+                self.log_message.emit("Ошибка: период опроса должен быть положительным числом")
+                self.record_button.setChecked(False)
+                return
+
+            # Запускаем таймер
+            self.periodic_timer.start(interval * 1000)  # переводим в миллисекунды
+            self.is_recording = True
+            self.record_button.setText("⏹ Остановить запись")
+            self.log_message.emit(f"Запущена периодическая запись с периодом {interval} сек")
+            
+            # Блокируем другие кнопки во время записи
+            self.set_recording_state(True)
+            
+            # Немедленно выполняем первое чтение
+            self.on_periodic_timer_timeout()
+
+        except Exception as e:
+            self.log_message.emit(f"Ошибка запуска записи: {str(e)}")
+            self.record_button.setChecked(False)
+
+    def stop_periodic_recording(self):
+        """Остановка периодической записи"""
+        self.periodic_timer.stop()
+        self.is_recording = False
+        self.record_button.setText("⚫ Запуск периодической записи")
+        self.log_message.emit("Периодическая запись остановлена")
+        
+        # Разблокируем другие кнопки
+        self.set_recording_state(False)
+
+    def on_periodic_timer_timeout(self):
+        """Обработчик срабатывания таймера периодической записи"""
+        if self.is_recording:
+            self.log_message.emit("🕒 Выполнение периодического измерения...")
+            self.periodic_read_requested.emit()
+
+    def get_poll_interval(self):
+        """Получение периода опроса из UI"""
+        try:
+            interval = float(self.poll_interval_edit.text())
+            return max(1, interval)  # Минимальный интервал 1 секунда
+        except ValueError:
+            return 5  # Значение по умолчанию
+
+    def on_poll_interval_changed(self):
+        """Обработка изменения периода опроса"""
+        if self.is_recording:
+            # Перезапускаем таймер с новым интервалом
+            interval = self.get_poll_interval()
+            self.periodic_timer.stop()
+            self.periodic_timer.start(interval * 1000)
+            self.log_message.emit(f"Период опроса изменен на {interval} сек")
+
+    def set_recording_state(self, recording):
+        """Установка состояния записи (блокировка/разблокировка кнопок)"""
+        self.measure_button.setEnabled(not recording)
+        self.read_oscilloscope_button.setEnabled(not recording)
+        self.refresh_instruments_button.setEnabled(not recording)
+        self.poll_interval_edit.setEnabled(not recording)
+
+    # Остальные существующие методы остаются без изменений...
     def start_instrument_detection(self):
         """Запуск обнаружения приборов"""
         self.log_message.emit("Обнаружение приборов...")
@@ -329,6 +467,8 @@ class InstrumentManager(QObject):
         self.measure_button.setEnabled(enabled and enable_measure)
         self.read_oscilloscope_button.setEnabled(enabled and enable_measure)
         self.stop_button.setEnabled(not enabled)
+        self.record_button.setEnabled(enabled and enable_measure)
+        self.poll_interval_edit.setEnabled(enabled)
 
     def set_measurement_state(self, measuring):
         """Установка состояния измерения"""
@@ -336,12 +476,14 @@ class InstrumentManager(QObject):
         self.stop_button.setEnabled(measuring)
         self.read_oscilloscope_button.setEnabled(not measuring)
         self.refresh_instruments_button.setEnabled(not measuring)
+        self.record_button.setEnabled(not measuring)
 
     def set_reading_state(self, reading):
         """Установка состояния чтения данных"""
         self.measure_button.setEnabled(not reading)
         self.read_oscilloscope_button.setEnabled(not reading)
         self.refresh_instruments_button.setEnabled(not reading)
+        self.record_button.setEnabled(not reading)
 
     def update_progress(self, value):
         """Обновление прогресс бара"""

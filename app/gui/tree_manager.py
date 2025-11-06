@@ -219,11 +219,11 @@ class TreeManager(QObject):
     def on_header_double_clicked(self, logical_index):
         """Обработка двойного клика по заголовку для фильтрации"""
         logger.debug(f"Двойной клик по заголовку столбца {logical_index}")
-        
+
         column_config = self.column_manager.get_column_by_index(logical_index)
         if column_config:
             logger.debug(f"Конфигурация столбца: {column_config}")
-            
+
         if column_config and column_config.get('type') == 'dynamic':
             logger.debug("Открытие фильтра для динамического столбца")
             self.show_column_filter(logical_index)
@@ -913,54 +913,54 @@ class TreeManager(QObject):
     def show_all_items(self):
         """Показать все предметы и анализы"""
         logger.debug("Показ всех элементов дерева")
-        
+
         for subject_code, subject_item in self.subject_items.items():
             # ВСЕГДА показываем предмет
             subject_item.setHidden(False)
-            
+
             # Показываем все анализы предмета
             for analysis_index in subject_item.get_all_analyses():
                 analysis_item = subject_item.get_analysis(analysis_index)
                 if analysis_item:
                     analysis_item.setHidden(False)
-            
+
             # Разворачиваем предмет, чтобы были видны анализы
             subject_item.setExpanded(True)
 
     def apply_filters(self):
         """Применить все активные фильтры к дереву"""
         logger.debug("Применение фильтров к дереву")
-        
+
         # Если нет фильтров - показываем всё
         if not self.filter_manager.get_filters():
             self.show_all_items()
             return
-        
+
         # Применяем фильтры
         any_visible = False
         for subject_code, subject_item in self.subject_items.items():
             visible_analyses = 0
-            
+
             # Проверяем фильтр по коду предмета
             subject_passed_filter = self._check_subject_filter(subject_code)
-            
+
             for analysis_index in subject_item.get_all_analyses():
                 analysis_item = subject_item.get_analysis(analysis_index)
                 if analysis_item:
                     analysis_passed_filter = self._check_analysis_filters(subject_code, analysis_index)
                     analysis_item.setHidden(not analysis_passed_filter)
-                    
+
                     if analysis_passed_filter:
                         visible_analyses += 1
-            
+
             # ПРЕДМЕТ ВИДИМ, ЕСЛИ:
             # 1. Он прошел фильтр по коду И имеет видимые анализы
             # 2. ИЛИ он пустой (нет анализов) - чтобы можно было добавлять файлы
             is_empty_subject = len(subject_item.get_all_analyses()) == 0
             subject_visible = (subject_passed_filter and visible_analyses > 0) or is_empty_subject
-            
+
             subject_item.setHidden(not subject_visible)
-            
+
             if subject_visible:
                 any_visible = True
                 subject_item.setExpanded(True)
