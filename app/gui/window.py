@@ -2,7 +2,7 @@
 import os
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QLabel, QMessageBox,
-    QHBoxLayout, QPushButton, QTreeWidget
+    QHBoxLayout, QPushButton, QTreeWidget, QFrame
 )
 from PyQt6.QtCore import QEvent, Qt
 from gui.summary_dialog import SummaryDialog
@@ -43,63 +43,82 @@ class MainWindow(QMainWindow):
         # Запускаем обнаружение приборов
         self.instrument_manager.start_instrument_detection()
 
-    def setup_tree_section(self, main_layout):
-        """Настройка секции древовидной таблицы"""
-        title_label = QLabel('Структура предметов и анализов')
-        title_label.setStyleSheet('font-size: 16px; font-weight: bold;')
-        main_layout.addWidget(title_label)
-
-        # Создаем древовидную таблицу
-        tree_widget = QTreeWidget()
-        self.tree_manager = TreeManager(tree_widget)
-
-        # Создаем кнопки управления
-        self.setup_tree_buttons(main_layout)
-
-        main_layout.addWidget(tree_widget)
-
-        # Подключаем сигналы дерева
-        self.connect_tree_signals()
-
-        # Добавляем начальный предмет
-        self.tree_manager.add_subject("AN1")
-
     def setup_tree_buttons(self, main_layout):
-        """Создание кнопок управления древовидной таблицей"""
-        tree_button_layout = QHBoxLayout()
-
-        add_subject_button = QPushButton('Добавить предмет')
-        add_subject_button.clicked.connect(self.add_subject)
-
-        load_files_button = QPushButton('Добавить файлы в текущий предмет')
-        load_files_button.clicked.connect(self.tree_manager.load_files_to_current_subject)
-
-        save_all_button = QPushButton('Сохранить всю таблицу')
-        save_all_button.clicked.connect(self.save_all_analysis)
-
-        save_selected_button = QPushButton('Сохранить выбранные анализы')
-        save_selected_button.clicked.connect(self.save_selected_analysis)
-
-        load_analysis_button = QPushButton('Загрузить анализ')
-        load_analysis_button.clicked.connect(self.load_analysis)
-
-        # Новая кнопка для настройки столбцов
-        configure_columns_button = QPushButton('Настроить столбцы')
-        configure_columns_button.clicked.connect(self.tree_manager.show_column_config_dialog)
-
-        tree_button_layout.addWidget(add_subject_button)
-        tree_button_layout.addWidget(load_files_button)
-        tree_button_layout.addWidget(save_all_button)
-        tree_button_layout.addWidget(save_selected_button)
-        tree_button_layout.addWidget(load_analysis_button)
-        tree_button_layout.addWidget(configure_columns_button)  # Добавляем новую кнопку
-
-        summary_button = QPushButton('Экспорт сводных данных')
-        summary_button.clicked.connect(self.show_summary_dialog)
-
-        tree_button_layout.addWidget(summary_button)
-
-        main_layout.addLayout(tree_button_layout)
+        """Компактная горизонтальная панель инструментов"""
+        
+        buttons_layout = QHBoxLayout()
+        
+        # Кнопки данных
+        add_subject_btn = QPushButton('Добавить предмет')
+        add_subject_btn.setToolTip('Добавить новый предмет')
+        add_subject_btn.clicked.connect(self.add_subject)
+        
+        load_files_btn = QPushButton('Добавить измерения')
+        load_files_btn.setToolTip('Добавить файлы в активный предмет')
+        load_files_btn.clicked.connect(self.tree_manager.load_files_to_current_subject)
+        
+        load_analysis_btn = QPushButton('Загрузить анализ')
+        load_analysis_btn.setToolTip('Загрузить анализ из файла')
+        load_analysis_btn.clicked.connect(self.load_analysis)
+        
+        # Кнопки сохранения
+        save_all_btn = QPushButton('Сохранить всё')
+        save_all_btn.setToolTip('Сохранить всю таблицу')
+        save_all_btn.clicked.connect(self.save_all_analysis)
+        
+        save_selected_btn = QPushButton('Сохранить выбранные')
+        save_selected_btn.setToolTip('Сохранить только выбранные (те у которых стоит галочка) анализы')
+        save_selected_btn.clicked.connect(self.save_selected_analysis)
+        
+        # Кнопки настройки
+        columns_btn = QPushButton('Настройки столбцов')
+        columns_btn.setToolTip('Настроить отображаемые столбцы')
+        columns_btn.clicked.connect(self.tree_manager.show_column_config_dialog)
+        
+        filters_btn = QPushButton('Отключить фильтры')
+        filters_btn.setToolTip('Очистить все фильтры')
+        filters_btn.clicked.connect(self.tree_manager.clear_filters)
+        
+        # Кнопки анализа
+        summary_btn = QPushButton('📈 Сводка')
+        summary_btn.setToolTip('Экспорт сводных данных')
+        summary_btn.clicked.connect(self.show_summary_dialog)
+        
+        # Добавляем кнопки с отступами
+        buttons_layout.addWidget(add_subject_btn)
+        buttons_layout.addWidget(load_files_btn)
+        buttons_layout.addWidget(load_analysis_btn)
+        
+        # Разделитель
+        separator1 = QFrame()
+        separator1.setFrameShape(QFrame.Shape.VLine)
+        separator1.setFrameShadow(QFrame.Shadow.Sunken)
+        buttons_layout.addWidget(separator1)
+        
+        buttons_layout.addWidget(save_all_btn)
+        buttons_layout.addWidget(save_selected_btn)
+        
+        # Разделитель
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.Shape.VLine)
+        separator2.setFrameShadow(QFrame.Shadow.Sunken)
+        buttons_layout.addWidget(separator2)
+        
+        buttons_layout.addWidget(columns_btn)
+        buttons_layout.addWidget(filters_btn)
+        
+        # Разделитель
+        separator3 = QFrame()
+        separator3.setFrameShape(QFrame.Shape.VLine)
+        separator3.setFrameShadow(QFrame.Shadow.Sunken)
+        buttons_layout.addWidget(separator3)
+        
+        buttons_layout.addWidget(summary_btn)
+        
+        # Растягивающее пространство
+        buttons_layout.addStretch()
+        
+        main_layout.addLayout(buttons_layout)
 
     def setup_instruments_section(self, main_layout):
         """Настройка секции приборов"""
@@ -260,11 +279,6 @@ class MainWindow(QMainWindow):
             self.data_manager.unregister_dialog(subject_code, analysis_index)
             # АВТОСОХРАНЕНИЕ
             self.auto_save()
-
-
-    def on_analysis_moved(self, old_subject, new_subject, analysis_index):
-        """Обработка перемещения анализа между предметами"""
-        self.data_manager.move_analysis_data(old_subject, new_subject, analysis_index)
 
     def on_measurement_started(self, params):
         """Обработка начала измерения"""
@@ -475,7 +489,7 @@ class MainWindow(QMainWindow):
 
             self.tree_manager.update_analysis_params(subject_code, added_index, analysis_info['params'])
 
-    def eventFilter(self, obj, event):
+    def eventFilter(self, obj, event): # type: ignore
         """Обработка событий"""
         if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Delete:
             # Обработка удаления через Delete key
@@ -490,26 +504,14 @@ class MainWindow(QMainWindow):
             return True
         return super().eventFilter(obj, event)
 
-
-    def closeEvent(self, event):
-        """Обработка закрытия приложения"""
-        # Останавливаем все потоки
-        self.worker_manager.wait_for_all()
-
-        # Закрываем все открытые диалоги
-        for dialog in self.data_manager.open_dialogs.values():
-            dialog.close()
-
-        event.accept()
-
     def setup_tree_section(self, main_layout):
         """Настройка секции древовидной таблицы"""
         title_label = QLabel('Структура предметов и анализов')
         title_label.setStyleSheet('font-size: 16px; font-weight: bold;')
         main_layout.addWidget(title_label)
 
-        # TreeManager теперь сам создает TreeWidget
-        self.tree_manager = TreeManager()
+        # TreeManager теперь требует data_manager для работы фильтров
+        self.tree_manager = TreeManager(self.data_manager)
 
         # Создаем кнопки управления
         self.setup_tree_buttons(main_layout)
@@ -602,7 +604,7 @@ class MainWindow(QMainWindow):
             logger.error(f"Ошибка автосохранения: {str(e)}")
 
 
-    def closeEvent(self, event):
+    def closeEvent(self, event): # type: ignore
         """Обработка закрытия приложения с улучшенной обработкой ошибок"""
         try:
             # Предлагаем сохранить данные перед выходом

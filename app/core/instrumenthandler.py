@@ -302,3 +302,183 @@ class OscilloscopeReaderThread(QThread):
 
         except Exception as e:
             self.error_signal.emit(f"Неожиданная ошибка: {str(e)}")
+
+class OscilloscopePollingThread(QThread):
+    """Поток для периодического опроса осциллографа"""
+    
+    update_signal = pyqtSignal(str)
+    data_ready = pyqtSignal(dict)  # channels_data с временной меткой
+    error_signal = pyqtSignal(str)
+    polling_status = pyqtSignal(bool)  # Статус опроса (True - запущен, False - остановлен)
+    
+    def __init__(self, oscilloscope_resource, oscilloscope_type, polling_interval=1.0):
+        super().__init__()
+        self.oscilloscope_resource = oscilloscope_resource
+        self.oscilloscope_type = oscilloscope_type
+        self.polling_interval = polling_interval  # Интервал в секундах
+        self._is_running = False
+        self._stop_requested = False
+        self.provider = None
+        
+    def run(self):
+        """Основной цикл опроса"""
+        try:
+            self._is_running = True
+            self.polling_status.emit(True)
+            self.update_signal.emit(f"Запущен периодический опрос с интервалом {self.polling_interval} сек")
+            
+            # Создаем провайдер для осциллографа
+            if self.oscilloscope_type == "Tektronix":
+                from modules.tektronixprovider import TektronixProvider
+                self.provider = TektronixProvider(self.oscilloscope_resource)
+            else:
+                self.error_signal.emit(f"Неподдерживаемый тип осциллографа: {self.oscilloscope_type}")
+                return
+                
+            # Подключаемся к осциллографу
+            if not self.provider.connect():
+                self.error_signal.emit("Не удалось подключиться к осциллографу")
+                return
+                
+            # Настраиваем осциллограф для однократного захвата
+            self._setup_oscilloscope_for_single()
+            
+            # Основной цикл опроса
+            while not self._stop_requested:
+                try:
+                    # Эмулируем нажатие кнопки Single
+                    single_success = self._emulate_single_button()
+                    
+                    if single_success:
+                        # Получаем данные
+                        channels_data = self._get_oscilloscope_data()
+                        if channels_data:
+                            # Добавляем временную метку
+                            channels_data['timestamp'] = datetime.now()
+                            channels_data['polling_interval'] = self.polling_interval
+                            
+                            self.data_ready.emit(channels_data)
+                            self.update_signal.emit(f"Получены данные: {datetime.now().strftime('%H:%M:%S')}")
+                        else:
+                            self.update_signal.emit("Не удалось получить данные с осциллографа")
+                    else:
+                        self.update_signal.emit("Ошибка эмуляции кнопки Single")
+                        
+                except Exception as e:
+                    self.error_signal.emit(f"Ошибка в цикле опроса: {str(e)}")
+                    
+                # Ждем указанный интервал
+                for i in range(int(self.polling_interval * 10)):
+                    if self._stop_requested:
+                        break
+                    time.sleep(0.1)
+                    
+        except Exception as e:
+            self.error_signal.emit(f"Ошибка в потоке опроса: {str(e)}")
+        finally:
+            self._cleanup()
+            
+    def _setup_oscilloscope_for_single(self):
+        """Настройка осциллографа для режима однократного захвата"""
+        try:
+            # Устанавливаем режим однократного захвата
+            self.provider.set_stop_after_mode("SEQuence")
+            self.provider.set_acquisition_mode("SAMple")
+            
+            # Настраиваем триггер для синхронизации по уровню
+            self._setup_trigger()
+            
+            self.update_signal.emit("Осциллограф настроен для однократного захвата")
+            return True
+            
+        except Exception as e:
+            self.error_signal.emit(f"Ошибка настройки осциллографа: {str(e)}")
+            return False
+            
+    def _setup_trigger(self):
+        """Настройка триггера для синхронизации по уровню"""
+        try:
+            # Используем команды триггера для настройки синхронизации по уровню
+            # Устанавливаем источник триггера (канал 1)
+            self.provider.scope.commands.trigger.a.source.write("CH1")
+            
+            # Устанавливаем тип триггера - фронт
+            self.provider.scope.commands.trigger.a.type.write("EDGE")
+            
+            # Устанавливаем уровень триггера (50% от амплитуды)
+            self.provider.scope.commands.trigger.a.level.write("50%")
+            
+            # Устанавливаем режим триггера - нормальный
+            self.provider.scope.commands.trigger.a.mode.write("NORMal")
+            
+            self.update_signal.emit("Триггер настроен для синхронизации по уровню")
+            
+        except Exception as e:
+            self.update_signal.emit(f"Предупреждение: не удалось настроить триггер: {str(e)}")
+            
+    def _emulate_single_button(self):
+        """Эмуляция нажатия кнопки Single"""
+        try:
+            # Останавливаем текущий захват
+            self.provider.stop_acquisition()
+            
+            # Устанавливаем режим однократного захвата
+            self.provider.set_stop_after_mode("SEQuence")
+            
+            # Запускаем захват
+            self.provider.start_acquisition()
+            
+            # Ждем завершения захвата с таймаутом
+            timeout = 10.0  # секунд
+            start_time = time.time()
+            
+            while time.time() - start_time < timeout:
+                state = self.provider.get_acquisition_state()
+                if state == "0":  # 0 означает остановлен (захват завершен)
+                    return True
+                time.sleep(0.1)
+                
+            self.update_signal.emit("Таймаут ожидания захвата")
+            return False
+            
+        except Exception as e:
+            self.error_signal.emit(f"Ошибка эмуляции кнопки Single: {str(e)}")
+            return False
+            
+    def _get_oscilloscope_data(self):
+        """Получение данных с осциллографа"""
+        try:
+            # Получаем данные со всех активных каналов
+            channels_data = self.provider.get_all_channels_data()
+            return channels_data
+            
+        except Exception as e:
+            self.error_signal.emit(f"Ошибка получения данных: {str(e)}")
+            return None
+            
+    def stop(self):
+        """Остановка опроса"""
+        self._stop_requested = True
+        self.update_signal.emit("Остановка периодического опроса...")
+        
+    def _cleanup(self):
+        """Очистка ресурсов"""
+        self._is_running = False
+        self.polling_status.emit(False)
+        
+        if self.provider:
+            try:
+                self.provider.disconnect()
+            except:
+                pass
+                
+        self.update_signal.emit("Периодический опрос остановлен")
+        
+    def is_running(self):
+        """Проверка, выполняется ли опрос"""
+        return self._is_running and not self._stop_requested
+        
+    def set_polling_interval(self, interval):
+        """Установка нового интервала опроса"""
+        self.polling_interval = max(0.1, interval)  # Минимум 100 мс
+        self.update_signal.emit(f"Интервал опроса изменен на {self.polling_interval} сек")

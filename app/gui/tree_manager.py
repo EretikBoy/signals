@@ -12,6 +12,7 @@ from PyQt6.QtGui import QAction
 from gui.tree_widget import TreeWidget
 from gui.tree_items import SubjectItem, AnalysisItem
 from gui.column_manager import ColumnManager
+from gui.filter_manager import FilterManager
 from utils.constants import BUTTON_STYLE_NORMAL, BUTTON_STYLE_SUCCESS, BUTTON_STYLE_ERROR, BUTTON_STYLE_WARNING
 
 import numpy as np
@@ -173,10 +174,12 @@ class TreeManager(QObject):
     analysis_moved = pyqtSignal(str, str, int)  # old_subject, new_subject, analysis_index
     columns_changed = pyqtSignal(list)  # Список новых столбцов
 
-    def __init__(self):
+    def __init__(self, data_manager):
         super().__init__()
         self.tree = TreeWidget()
         self.column_manager = ColumnManager()
+        self.filter_manager = FilterManager()
+        self.data_manager = data_manager
 
         self.setup_tree()
 
@@ -215,11 +218,21 @@ class TreeManager(QObject):
 
     def on_header_double_clicked(self, logical_index):
         """Обработка двойного клика по заголовку для фильтрации"""
+        logger.debug(f"Двойной клик по заголовку столбца {logical_index}")
+        
         column_config = self.column_manager.get_column_by_index(logical_index)
+        if column_config:
+            logger.debug(f"Конфигурация столбца: {column_config}")
+            
         if column_config and column_config.get('type') == 'dynamic':
+            logger.debug("Открытие фильтра для динамического столбца")
             self.show_column_filter(logical_index)
         elif logical_index == self.column_manager.get_column_index('subject_code'):
+            logger.debug("Открытие фильтра для предметов")
             self.show_subject_filter()
+        else:
+            logger.debug("Открытие фильтра для базового столбца")
+            self.show_column_filter(logical_index)
 
     def show_column_filter(self, column_index):
         """Показать диалог фильтрации для столбца"""
@@ -880,3 +893,234 @@ class TreeManager(QObject):
             button.setStyleSheet(BUTTON_STYLE_WARNING)
         else:
             button.setStyleSheet(BUTTON_STYLE_NORMAL)
+
+    def apply_column_filter(self, column_index, filter_type, value1, value2):
+        """Применить фильтр к столбцу"""
+        column_config = self.column_manager.get_column_by_index(column_index)
+        if column_config:
+            column_key = column_config['key']
+            self.filter_manager.set_filter(column_key, filter_type, value1, value2)
+            self.apply_filters()
+        else:
+            logger.warning(f"Не найдена конфигурация столбца для индекса {column_index}")
+
+    def apply_subject_filter(self, filter_text):
+        """Применить фильтр к предметам"""
+        # Для фильтрации по предметам используем специальный ключ
+        self.filter_manager.set_filter('_subject_code', 'Равно', filter_text)
+        self.apply_filters()
+
+    def show_all_items(self):
+        """Показать все предметы и анализы"""
+        logger.debug("Показ всех элементов дерева")
+        
+        for subject_code, subject_item in self.subject_items.items():
+            # ВСЕГДА показываем предмет
+            subject_item.setHidden(False)
+            
+            # Показываем все анализы предмета
+            for analysis_index in subject_item.get_all_analyses():
+                analysis_item = subject_item.get_analysis(analysis_index)
+                if analysis_item:
+                    analysis_item.setHidden(False)
+            
+            # Разворачиваем предмет, чтобы были видны анализы
+            subject_item.setExpanded(True)
+
+    def apply_filters(self):
+        """Применить все активные фильтры к дереву"""
+        logger.debug("Применение фильтров к дереву")
+        
+        # Если нет фильтров - показываем всё
+        if not self.filter_manager.get_filters():
+            self.show_all_items()
+            return
+        
+        # Применяем фильтры
+        any_visible = False
+        for subject_code, subject_item in self.subject_items.items():
+            visible_analyses = 0
+            
+            # Проверяем фильтр по коду предмета
+            subject_passed_filter = self._check_subject_filter(subject_code)
+            
+            for analysis_index in subject_item.get_all_analyses():
+                analysis_item = subject_item.get_analysis(analysis_index)
+                if analysis_item:
+                    analysis_passed_filter = self._check_analysis_filters(subject_code, analysis_index)
+                    analysis_item.setHidden(not analysis_passed_filter)
+                    
+                    if analysis_passed_filter:
+                        visible_analyses += 1
+            
+            # ПРЕДМЕТ ВИДИМ, ЕСЛИ:
+            # 1. Он прошел фильтр по коду И имеет видимые анализы
+            # 2. ИЛИ он пустой (нет анализов) - чтобы можно было добавлять файлы
+            is_empty_subject = len(subject_item.get_all_analyses()) == 0
+            subject_visible = (subject_passed_filter and visible_analyses > 0) or is_empty_subject
+            
+            subject_item.setHidden(not subject_visible)
+            
+            if subject_visible:
+                any_visible = True
+                subject_item.setExpanded(True)
+
+        # Если после фильтрации ничего не видно, показываем сообщение
+        if not any_visible:
+            logger.debug("После применения фильтров не осталось видимых элементов")
+
+    def _check_subject_filter(self, subject_code: str) -> bool:
+        """Проверить фильтр для предмета"""
+        filters = self.filter_manager.get_filters()
+        subject_filter = filters.get('_subject_code')
+
+        if not subject_filter:
+            return True
+
+        filter_type = subject_filter['type']
+        filter_value = subject_filter['value1']
+
+        if not filter_value:
+            return True
+
+        if filter_type == 'Равно':
+            return filter_value.lower() in subject_code.lower()
+
+        return True
+
+    def _check_analysis_filters(self, subject_code: str, analysis_index: int) -> bool:
+        """Проверить фильтры для анализа"""
+        analysis_data = self.data_manager.get_analysis_data(subject_code, analysis_index)
+        if not analysis_data:
+            return False
+
+        return self.filter_manager.apply_filters(analysis_data, self.column_manager)
+
+    def clear_filters(self):
+        """Очистить все фильтры"""
+        self.filter_manager.clear_filters()
+        self.apply_filters()
+
+    # Обновим show_column_filter для лучшего UX
+    def show_column_filter(self, column_index):
+        """Показать диалог фильтрации для столбца"""
+        column_config = self.column_manager.get_column_by_index(column_index)
+        if column_config:
+            column_key = column_config['key']
+            column_title = column_config['title']
+
+            # Получаем текущий фильтр для этого столбца
+            current_filters = self.filter_manager.get_filters()
+            current_filter = current_filters.get(column_key, {})
+
+            dialog = QDialog(self.tree)
+            dialog.setWindowTitle(f'Фильтр: {column_title}')
+            dialog.setModal(True)
+            layout = QVBoxLayout(dialog)
+
+            # Выбор типа фильтра
+            filter_type = QComboBox()
+            filter_type.addItems(['Все значения', 'Равно', 'Больше', 'Меньше', 'Между'])
+            layout.addWidget(QLabel('Тип фильтра:'))
+            layout.addWidget(filter_type)
+
+            # Поля для значений
+            value1_layout = QHBoxLayout()
+            value1_layout.addWidget(QLabel('Значение:'))
+            value1_edit = QLineEdit()
+            # Заполняем текущее значение фильтра
+            if current_filter:
+                value1_edit.setText(str(current_filter.get('value1', '')))
+            value1_layout.addWidget(value1_edit)
+            layout.addLayout(value1_layout)
+
+            value2_layout = QHBoxLayout()
+            value2_layout.addWidget(QLabel('До:'))
+            value2_edit = QLineEdit()
+            # Заполняем текущее значение фильтра
+            if current_filter:
+                value2_edit.setText(str(current_filter.get('value2', '')))
+            value2_layout.addWidget(value2_edit)
+            value2_layout.setEnabled(False)
+            layout.addLayout(value2_layout)
+
+            # Кнопка очистки фильтров
+            clear_button = QPushButton('Очистить все фильтры')
+            clear_button.clicked.connect(lambda: self.clear_filters_and_close(dialog))
+            layout.addWidget(clear_button)
+
+            # Кнопки диалога
+            button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            button_box.accepted.connect(dialog.accept)
+            button_box.rejected.connect(dialog.reject)
+            layout.addWidget(button_box)
+
+            # Логика включения полей
+            def update_fields(index):
+                is_between = index == 4  # "Между"
+                value2_layout.setEnabled(is_between)
+                # Устанавливаем текущий тип фильтра
+                if current_filter and index == 0:
+                    filter_type.setCurrentText(current_filter.get('type', 'Все значения'))
+
+            filter_type.currentIndexChanged.connect(update_fields)
+
+            # Устанавливаем текущий тип фильтра
+            if current_filter:
+                filter_type_map = {
+                    'Равно': 1, 'Больше': 2, 'Меньше': 3, 'Между': 4
+                }
+                current_type = current_filter.get('type', 'Все значения')
+                filter_type.setCurrentIndex(filter_type_map.get(current_type, 0))
+            else:
+                filter_type.setCurrentIndex(0)
+
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.apply_column_filter(
+                    column_index,
+                    filter_type.currentText(),
+                    value1_edit.text(),
+                    value2_edit.text() if value2_layout.isEnabled() else None
+                )
+
+    def clear_filters_and_close(self, dialog):
+        """Очистить все фильтры и закрыть диалог"""
+        self.clear_filters()
+        dialog.accept()
+
+    # Обновим контекстное меню для добавления очистки фильтров
+    def show_context_menu(self, position):
+        """Показать контекстное меню"""
+        item = self.tree.itemAt(position)
+        menu = QMenu()
+
+        if item is None:
+            # Контекстное меню для заголовков
+            configure_columns_action = QAction("Настроить столбцы...", self.tree)
+            configure_columns_action.triggered.connect(self.show_column_config_dialog)
+            menu.addAction(configure_columns_action)
+
+            # Добавляем очистку фильтров
+            clear_filters_action = QAction("Очистить все фильтры", self.tree)
+            clear_filters_action.triggered.connect(self.clear_filters)
+            menu.addAction(clear_filters_action)
+
+        elif isinstance(item, SubjectItem):  # Предмет
+            add_analysis_action = QAction("Добавить анализ", self.tree)
+            delete_subject_action = QAction("Удалить предмет", self.tree)
+            filter_subject_action = QAction("Фильтровать предмет...", self.tree)
+
+            menu.addAction(add_analysis_action)
+            menu.addAction(delete_subject_action)
+            menu.addAction(filter_subject_action)
+
+            add_analysis_action.triggered.connect(self.load_files_to_current_subject)
+            delete_subject_action.triggered.connect(self.delete_current_subject)
+            filter_subject_action.triggered.connect(self.show_subject_filter)
+
+        elif isinstance(item, AnalysisItem):  # Анализ
+            delete_analysis_action = QAction("Удалить анализ", self.tree)
+            menu.addAction(delete_analysis_action)
+            delete_analysis_action.triggered.connect(self.delete_current_analysis)
+
+        menu.exec(self.tree.mapToGlobal(position))
