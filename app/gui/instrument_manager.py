@@ -251,7 +251,7 @@ class InstrumentManager(QObject):
                 return
 
             # Запускаем таймер
-            self.periodic_timer.start(interval * 1000)  # переводим в миллисекунды
+            self.periodic_timer.start(int(interval * 1000))  # переводим в миллисекунды
             self.is_recording = True
             self.record_button.setText("⏹ Остановить запись")
             self.log_message.emit(f"Запущена периодическая запись с периодом {interval} сек")
@@ -296,7 +296,7 @@ class InstrumentManager(QObject):
             # Перезапускаем таймер с новым интервалом
             interval = self.get_poll_interval()
             self.periodic_timer.stop()
-            self.periodic_timer.start(interval * 1000)
+            self.periodic_timer.start(int(interval * 1000))
             self.log_message.emit(f"Период опроса изменен на {interval} сек")
 
     def set_recording_state(self, recording):
