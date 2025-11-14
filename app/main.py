@@ -26,7 +26,11 @@ def setup_logger():
     logging.getLogger('PyQt6').setLevel(logging.WARNING)
     logging.getLogger('matplotlib').setLevel(logging.WARNING)
     logging.getLogger('pyvisa').setLevel(logging.WARNING)
-    logging.getLogger('data_manager').setLevel(logging.WARNING)
+    logging.getLogger('core.data_manager').setLevel(logging.WARNING)
+    logging.getLogger('gui.tree_manager').setLevel(logging.WARNING)
+    logging.getLogger('gui.window').setLevel(logging.WARNING)
+    logging.getLogger('gui.tree_items').setLevel(logging.WARNING)
+    logging.getLogger('core.dataprocessor').setLevel(logging.WARNING)
 
 def global_exception_handler(exc_type, exc_value, exc_traceback):
     """Глобальный обработчик неперехваченных исключений"""
