@@ -620,6 +620,7 @@ class MainWindow(QMainWindow):
 
     def auto_save(self):
         """Автоматическое сохранение при значимых действиях"""
+        return
         try:
             # Проверяем, есть ли данные для сохранения
             if hasattr(self.data_manager, 'subjects_data') and self.data_manager.subjects_data:

@@ -182,12 +182,25 @@ class DataManager:
             end_freq = int(params.get('end_freq', DEFAULT_PARAMS['end_freq']))
             bandwidth = end_freq - start_freq
             record_time = int(params.get('record_time', DEFAULT_PARAMS['record_time']))
+            
+            # Добавляем временную метку в формате hh:mm:ss_dd/mm/yyyy
+            from datetime import datetime
+            timestamp = datetime.now()
+            timestamp_str = timestamp.strftime("%H-%M-%S_%d-%m-%Y")
+            
             if tree_manager:
-                return f"{tree_manager.get_subject_name(subject_code)}_{start_freq}_{bandwidth}_{record_time}.csv"
+                return f"{tree_manager.get_subject_name(subject_code)}_{start_freq}_{bandwidth}_{record_time}_{timestamp_str}.csv"
             else:
-                return f"{subject_code}_{start_freq}_{bandwidth}_{record_time}.csv"
+                return f"{subject_code}_{start_freq}_{bandwidth}_{record_time}_{timestamp_str}.csv"
         except (ValueError, TypeError):
-            return f"{tree_manager.get_subject_name(subject_code)}_{DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['end_freq'] - DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['record_time']}.csv"
+            from datetime import datetime
+            timestamp = datetime.now()
+            timestamp_str = timestamp.strftime("%H-%M-%S_%d-%m-%Y")
+            
+            if tree_manager:
+                return f"{tree_manager.get_subject_name(subject_code)}_{DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['end_freq'] - DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['record_time']}_{timestamp_str}.csv"
+            else:
+                return f"{subject_code}_{DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['end_freq'] - DEFAULT_PARAMS['start_freq']}_{DEFAULT_PARAMS['record_time']}_{timestamp_str}.csv"
 
     def save_measurement_data(self, channels_data, params, subject_code=None):
         try:

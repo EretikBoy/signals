@@ -59,7 +59,11 @@ class InstrumentManager(QObject):
         """Создание UI компонентов управления приборами"""
         # Выпадающие списки приборов
         self.generator_combo = QComboBox()
+        self.generator_combo.setMinimumWidth(250)
+        self.generator_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self.oscilloscope_combo = QComboBox()
+        self.oscilloscope_combo.setMinimumWidth(250)
+        self.oscilloscope_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
 
         # Поля ввода параметров
         self.start_freq_edit = QLineEdit(str(DEFAULT_PARAMS['start_freq']))
