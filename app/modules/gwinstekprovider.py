@@ -116,7 +116,8 @@ class GWInstekProvider:
             if not 1 <= ch <= self.chnum:
                 raise ValueError(f"Invalid channel number: {ch}")
 
-            response = self.com.query(f":CHAN{ch}:DISP?\n")
+            response = self.com.query(f":CHAN{ch}:DISP?\n",0.1)
+            logger.info(f"Channel {ch} response: {response}")
             return response.strip() == "ON"
         except Exception as e:
             logger.error(f"Channel status check failed: {str(e)}")
@@ -198,6 +199,7 @@ class GWInstekProvider:
 
         while time.time() < timeout:
             line = self.com.read_line().strip()
+            logger.info(f"Last line header: {line}")
             if line:
                 header_lines.append(line)
                 if "Waveform Data;" in line:
@@ -225,26 +227,41 @@ class GWInstekProvider:
         try:
             # Читаем начальный байт бинарного заголовка
             first_byte = self.com.read(1)
+            logger.info(f"binary header start: {first_byte}")
             if not first_byte or first_byte != b'#':
+                logger.error(f"Invalid binary header start: {first_byte}")
                 raise GWInstekAcquisitionError("Invalid binary header start")
 
             # Читаем количество цифр в длине данных
             n_digits_byte = self.com.read(1)
+            logger.info(f"digit count received: {n_digits_byte}")
             if not n_digits_byte:
+                logger.error(f"No digit count received: {n_digits_byte}")
                 raise GWInstekAcquisitionError("No digit count received")
 
             n_digits = int(n_digits_byte)
 
             # Читаем длину данных
             length_bytes = self.com.read(n_digits)
+            logger.info(f"length bytes received: {length_bytes}")
             if not length_bytes:
+                logger.error(f"No length bytes received: {length_bytes}")
                 raise GWInstekAcquisitionError("No length bytes received")
 
             data_length = int(length_bytes)
 
             # Читаем сами данные
-            raw_data = self.com.read(data_length)
+            #raw_data = self.com.read(data_length)
+            raw_data = bytearray()
+            timeout = time.time() + 5 
+            while self.com.connection.in_waiting > 0 and len(raw_data) < data_length and time.time() < timeout:
+                #logger.info(f'Reading process: {len(raw_data)/data_length*100}%')
+                #logger.info(f'Left to read: {self.com.connection.in_waiting} bytes')
+                raw_data.extend(self.com.read(1))
+            logger.info(f'Last bytes: {raw_data[-5:-1]}')
+
             received_length = len(raw_data)
+            logger.info(f'{type(raw_data)}, {received_length}')
 
             if received_length != data_length:
                 # Не все данные получены, но продолжаем с тем что есть

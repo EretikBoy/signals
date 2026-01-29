@@ -7,8 +7,11 @@ from modules.rigolprovider import RigolProvider
 import time
 import pyvisa
 import numpy as np
+import logging
 
 from PyQt6.QtCore import QThread, pyqtSignal
+
+logger = logging.getLogger(__name__)
 
 class InstrumentDetectorThread(QThread):
     """Поток для асинхронного обнаружения приборов"""
@@ -206,6 +209,7 @@ class InstrumentWorker(QThread):
                         break
 
                     self.update_signal.emit(f"Чтение канала {ch}...")
+                    logger.info(f'Чтение канала {ch}...')
                     channel = oscilloscope.get_channel_data(ch)
                     if channel:
                         channels_data[f"CH{ch}"] = channel
@@ -279,6 +283,7 @@ class OscilloscopeReaderThread(QThread):
 
                 for ch in range(1, oscilloscope.chnum + 1):
                     self.update_signal.emit(f"Чтение канала {ch}...")
+                    logger.info(f"Чтение канала {ch}...")
                     channel = oscilloscope.get_channel_data(ch)
                     if channel:
                         channels_data[f"CH{ch}"] = channel
