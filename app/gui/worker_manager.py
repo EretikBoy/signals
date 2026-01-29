@@ -2,7 +2,7 @@
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from core.instrumenthandler import (
-    InstrumentDetectorThread, InstrumentWorker, OscilloscopeReaderThread
+    InstrumentDetectorThread, InstrumentWorker, OscilloscopeReaderThread, OscilloscopeSingleShotThread
 )
 
 
@@ -24,6 +24,7 @@ class WorkerManager(QObject):
         self.measurement_thread = None
         self.detection_thread = None
         self.reader_thread = None
+        self.single_shot_thread = None
 
     def start_instrument_detection(self):
         """Запуск обнаружения приборов в отдельном потоке"""
@@ -101,3 +102,23 @@ class WorkerManager(QObject):
 
         for thread in threads:
             thread.wait(timeout)
+
+    def start_single_shot_measurement(self, oscilloscope_resource, oscilloscope_type):
+        """Запуск одиночного измерения с осциллографа"""
+        if self.single_shot_thread and self.single_shot_thread.isRunning():
+            self.log_message.emit("Предыдущее измерение еще выполняется")
+            return
+
+        self.single_shot_thread = OscilloscopeSingleShotThread(
+            oscilloscope_resource,
+            oscilloscope_type
+        )
+        
+        self.connect_worker_signals(self.single_shot_thread)
+        self.single_shot_thread.start()
+        
+    def connect_worker_signals(self, worker):
+        """Подключение сигналов рабочего потока"""
+        worker.update_signal.connect(self.log_message)
+        worker.finished_signal.connect(self.oscilloscope_data_ready)
+        worker.error_signal.connect(self.oscilloscope_data_error)

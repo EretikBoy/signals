@@ -25,7 +25,7 @@ class COMReadWriteError(COMError):
 class COMProvider:
     DEFAULT_SETTINGS = {
         'gwinstek': {
-            'baudrate': 38400,
+            'baudrate': 115200,
             'bytesize': serial.EIGHTBITS,
             'parity': serial.PARITY_NONE,
             'stopbits': serial.STOPBITS_ONE,
@@ -91,6 +91,7 @@ class COMProvider:
             if isinstance(data, str):
                 data = data.encode()
             self.connection.write(data)
+            self.logger.info(f'Writing data: {data}')
         except serial.SerialException as e:
             self.is_connected = False
             self.logger.error(f"Write failed: {e}")
@@ -136,10 +137,12 @@ class COMProvider:
             try:
                 self.connection.reset_input_buffer()
                 self.connection.reset_output_buffer()
+                self.logger.info(f'Buffers cleared')
             except serial.SerialException as e:
                 self.logger.warning(f"Clear buffers failed: {e}")
 
     def query(self, command: str, delay: float = 0.1) -> str:
+        self.clear_buffers()
         self.write(command)
         time.sleep(delay)
         return self.read_line()

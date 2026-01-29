@@ -22,3 +22,5 @@ app/logs
 logs
 *.xlsx
 app/emergency_backups
+app/restored_data
+measurements/
