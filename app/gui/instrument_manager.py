@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import pyqtSignal, QObject, QTimer
 from PyQt6.QtGui import QFont
 
+from gui.log_widget import LogWidget
 from utils.constants import BUTTON_STYLE_MEASURE, BUTTON_STYLE_STOP, DEFAULT_PARAMS
 from core.instrumenthandler import InstrumentDetectorThread
 
@@ -86,7 +87,7 @@ class InstrumentManager(QObject):
 
         # Прогресс бар и лог
         self.progress_bar = QProgressBar()
-        self.log_text = QTextEdit()
+        self.log_text = LogWidget()
 
         self.setup_connections()
         self.apply_styles()
@@ -492,10 +493,18 @@ class InstrumentManager(QObject):
     def update_progress(self, value):
         """Обновление прогресс бара"""
         self.progress_bar.setValue(value)
+        self.update_progress_in_log(value)
 
-    def log(self, message):
-        """Добавление сообщения в лог"""
-        self.log_text.append(message)
+    def log(self, message, line_id=None):
+        """Добавление или обновление сообщения в логе"""
+        if line_id:
+            self.log_text.append_with_id(message, line_id)
+        else:
+            self.log_text.append(message)
+
+    def update_progress_in_log(self, value):
+        """Обновляет строку с прогрессом в логе"""
+        self.log_text.update_line("measurement_progress", f"Измерение... {value}%")
 
     def set_last_measurement_data(self, data):
         """Установка данных последнего измерения"""

@@ -454,8 +454,26 @@ class TreeManager(QObject):
 
     def add_subject(self, subject_code=None):
         """Добавление нового предмета"""
+        existing_indices = set()
         if subject_code is None:
-            subject_code = f"AN{len(self.subject_items) + 1}"
+            # Создаем множество существующих индексов
+            existing_indices = set()
+            for code in self.subject_items.keys():
+                if code.startswith("AN"):
+                    try:
+                        # Извлекаем числовую часть после "AN"
+                        index = int(code[2:])
+                        existing_indices.add(index)
+                    except ValueError:
+                        # Если не удалось преобразовать в число, пропускаем
+                        continue
+        
+            # Находим первый доступный индекс начиная с 1
+            index = 1
+            while index in existing_indices:
+                index += 1
+            
+            subject_code = f"AN{index}"
 
         # Проверяем, нет ли уже предмета с таким кодом
         if subject_code in self.subject_items:

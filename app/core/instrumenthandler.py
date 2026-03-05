@@ -186,7 +186,6 @@ class InstrumentWorker(QThread):
 
                     progress = min(100, int((i * step) / total_time * 100))
                     self.progress_signal.emit(progress)
-                    self.update_signal.emit(f"Измерение... {progress}%")
                     self.msleep(int(step * 1000))  # неблокирующая задержка
 
                 if self.is_running:

@@ -143,7 +143,64 @@ class DataParser:
     def _parse_csv(self, file_path: str) -> bool:
         '''Парсинг CSV файла с данными осциллографа'''
         try:
-            #Используем контекстный менеджер для чтения CSV
+            # Используем контекстный менеджер для чтения CSV
+            with open(file_path, 'r', encoding='utf-8') as file:
+                # Пробуем прочитать первую строку для проверки формата
+                first_line = file.readline()
+                file.seek(0)  # Возвращаемся в начало файла
+                
+                # Проверяем, является ли первая строка заголовком с именами каналов
+                if first_line.startswith('CH') and '_time' in first_line and '_amplitude' in first_line:
+                    # Новый формат с заголовком
+                    return self._parse_new_format_csv(file_path)
+                else:
+                    # Старый формат без заголовка
+                    return self._parse_old_format_csv(file_path)
+                    
+        except Exception as e:
+            print(f"Ошибка парсинга CSV файла: {e}")
+            return False
+
+    def _parse_new_format_csv(self, file_path: str) -> bool:
+        '''Парсинг нового формата CSV с заголовком'''
+        try:
+            # Читаем CSV с заголовком
+            df = pd.read_csv(file_path, encoding='utf-8')
+            
+            # Определяем количество каналов (по парам time/amplitude)
+            time_cols = [col for col in df.columns if '_time' in col]
+            
+            for time_col in time_cols:
+                # Извлекаем имя канала из названия столбца
+                channel_name = time_col.split('_')[0]  # "CH1_time" -> "CH1"
+                amp_col = f"{channel_name}_amplitude"
+                
+                if amp_col in df.columns:
+                    # Создаем канал
+                    channel = Channel(channel_name)
+                    channel.set_data(df[time_col], df[amp_col])
+                    
+                    # Создаем минимальные метаданные
+                    metadata = {
+                        'Source': channel_name,
+                        'Record Length': len(df),
+                        'Vertical Units': 'V',
+                        'Horizontal Units': 's'
+                    }
+                    channel.set_metadata_from_dict(metadata)
+                    
+                    self.channels[channel.name] = channel
+            
+            return True
+            
+        except Exception as e:
+            print(f"Ошибка парсинга нового формата CSV: {e}")
+            return False
+
+    def _parse_old_format_csv(self, file_path: str) -> bool:
+        '''Парсинг старого формата CSV (оригинальный метод)'''
+        try:
+            # Используем контекстный менеджер для чтения CSV
             with open(file_path, 'r', encoding='utf-8') as file:
                 df = pd.read_csv(file, header=None)
 
